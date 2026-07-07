@@ -83,29 +83,25 @@ See [Stores](/docs/resilience/stores) for the Lucid and Redis drivers and migrat
 
 ## The service
 
-Resolve `ResilienceService` from the container to run policies imperatively and to inspect or reset circuits.
+Import the singleton from `@adonis-agora/resilience/services/main` to run policies imperatively and to inspect or reset circuits. It resolves the same container-bound `ResilienceService` the provider registers.
 
 ```ts title="app/services/billing_service.ts"
-import { ResilienceService } from '@adonis-agora/resilience'
+import resilience from '@adonis-agora/resilience/services/main'
 import { timeout } from '@adonis-agora/resilience'
-import app from '@adonisjs/core/services/app'
 
 export default class BillingService {
   // run a named policy from config…
   async charge(order: Order) {
-    const resilience = await app.container.make(ResilienceService)
     return resilience.execute('payments', () => chargeCard(order))
   }
 
   // …or an inline one
   async ping() {
-    const resilience = await app.container.make(ResilienceService)
     return resilience.execute(timeout(1_000), () => fetch('/health'))
   }
 
   // walk an ordered list of targets
   async notify(message: Message) {
-    const resilience = await app.container.make(ResilienceService)
     return resilience.failover({
       targets: this.providers,
       run: (p) => p.send(message),
@@ -114,7 +110,6 @@ export default class BillingService {
 
   // inspect / reset a circuit by key
   async circuitState() {
-    const resilience = await app.container.make(ResilienceService)
     return resilience.circuit('payments').snapshot()
   }
 }

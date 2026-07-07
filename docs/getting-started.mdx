@@ -91,15 +91,13 @@ export default defineConfig({
 })
 ```
 
-The provider binds a singleton `ResilienceService` built lazily from this config. Resolve it from the container and run a named policy:
+The provider binds a singleton `ResilienceService` built lazily from this config. Import the ready-to-use singleton from `@adonis-agora/resilience/services/main` and run a named policy:
 
 ```ts title="app/services/billing_service.ts"
-import { ResilienceService } from '@adonis-agora/resilience'
-import app from '@adonisjs/core/services/app'
+import resilience from '@adonis-agora/resilience/services/main'
 
 export default class BillingService {
   async charge(order: Order) {
-    const resilience = await app.container.make(ResilienceService)
     return resilience.execute('payments', () => chargeCard(order))
   }
 }
