@@ -83,50 +83,96 @@ See [Stores](/docs/resilience/stores) for the Lucid and Redis drivers and migrat
 
 ## The service
 
-Import the singleton from `@adonis-agora/resilience/services/main` to run policies imperatively and to inspect or reset circuits. It resolves the same container-bound `ResilienceService` the provider registers.
+Import the singleton from `@adonis-agora/resilience/services/main` to run policies imperatively and to inspect or reset circuits. It resolves the same container-bound `ResilienceService` the provider registers. Wrap the **outbound call** to a flaky dependency — here a payment gateway — in a service, and thread `signal` into the client so a timeout actually cancels the request:
 
-```ts title="app/services/billing_service.ts"
+```ts title="app/services/payment_gateway_service.ts"
 import resilience from '@adonis-agora/resilience/services/main'
 import { timeout } from '@adonis-agora/resilience'
+import { primaryGateway, backupGateway } from '#services/gateways'
+import type Order from '#models/order'
 
-export default class BillingService {
-  // run a named policy from config…
+export default class PaymentGatewayService {
+  // run the named `payments` policy from config around the outbound charge…
   async charge(order: Order) {
-    return resilience.execute('payments', () => chargeCard(order))
+    return resilience.execute('payments', ({ signal }) =>
+      fetch('https://api.stripe.com/v1/charges', {
+        method: 'POST',
+        body: JSON.stringify({ amount: order.total, currency: 'usd' }),
+        signal,
+      }).then((res) => res.json())
+    )
   }
 
-  // …or an inline one
+  // …or an inline policy for a quick liveness probe
   async ping() {
-    return resilience.execute(timeout(1_000), () => fetch('/health'))
+    return resilience.execute(timeout(1_000), ({ signal }) =>
+      fetch('https://api.stripe.com/v1/health', { signal })
+    )
   }
 
-  // walk an ordered list of targets
-  async notify(message: Message) {
+  // fall back through an ordered list of gateways — first success wins
+  async settle(order: Order) {
     return resilience.failover({
-      targets: this.providers,
-      run: (p) => p.send(message),
+      targets: [primaryGateway, backupGateway],
+      run: (gateway, { signal }) => gateway.settle(order, { signal }),
     })
   }
 
-  // inspect / reset a circuit by key
-  async circuitState() {
+  // inspect the payments circuit (status / failures / openUntil)
+  async health() {
     return resilience.circuit('payments').snapshot()
   }
 }
 ```
 
-Controllers can resolve the same singleton via constructor injection — AdonisJS's IoC container resolves `ResilienceService` automatically:
+A controller injects that service with `@inject()` and turns an open circuit into a real HTTP response instead of a 500 — fail fast with `503` when the gateway is down:
 
-```ts title="app/controllers/billing_controller.ts"
+```ts title="app/controllers/payments_controller.ts"
+import { inject } from '@adonisjs/core'
+import { HttpContext } from '@adonisjs/core/http'
+import { BrokenCircuitError } from '@adonis-agora/resilience'
+import PaymentGatewayService from '#services/payment_gateway_service'
+import Order from '#models/order'
+
+@inject()
+export default class PaymentsController {
+  constructor(private payments: PaymentGatewayService) {}
+
+  async store({ params, response }: HttpContext) {
+    const order = await Order.findOrFail(params.id)
+
+    try {
+      const receipt = await this.payments.charge(order)
+      return response.ok(receipt)
+    } catch (error) {
+      // circuit is open — the gateway is down, so short-circuit with a 503
+      if (error instanceof BrokenCircuitError) {
+        return response.serviceUnavailable({ message: 'Payments are temporarily unavailable' })
+      }
+      throw error
+    }
+  }
+}
+```
+
+```ts title="start/routes.ts"
+router.post('orders/:id/pay', [PaymentsController, 'store'])
+```
+
+Prefer injecting `ResilienceService` directly? `@inject()` resolves the same container-bound singleton — handy when a service holds no other state:
+
+```ts title="app/services/inventory_service.ts"
 import { inject } from '@adonisjs/core'
 import { ResilienceService } from '@adonis-agora/resilience'
 
 @inject()
-export default class BillingController {
+export default class InventoryService {
   constructor(private resilience: ResilienceService) {}
 
-  async store({ request }: HttpContext) {
-    return this.resilience.execute('payments', () => chargeCard(request.body()))
+  check(sku: string) {
+    return this.resilience.execute('inventory', ({ signal }) =>
+      fetch(`https://inventory.internal/stock/${sku}`, { signal }).then((res) => res.json())
+    )
   }
 }
 ```

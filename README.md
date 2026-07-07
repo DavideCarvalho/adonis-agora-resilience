@@ -26,16 +26,56 @@ const policy = wrap(
 const result = await policy.execute(() => chargeCard())
 ```
 
-Or through the container-resolved service:
+Or register named policies in `config/resilience.ts` and reach them through the
+singleton service — inject it into a service that wraps an outbound call:
 
 ```ts
-import { ResilienceService } from '@adonis-agora/resilience'
+// app/services/payment_gateway_service.ts
+import resilience from '@adonis-agora/resilience/services/main'
+import type Order from '#models/order'
 
-const resilience = await app.container.make(ResilienceService)
-await resilience.execute('db', () => query())              // named policy
-await resilience.failover({ targets, attempt })            // ordered failover
-await resilience.circuit('payments').snapshot()            // inspect / reset
+export default class PaymentGatewayService {
+  charge(order: Order) {
+    // the named `payments` policy wraps the call to the gateway
+    return resilience.execute('payments', ({ signal }) =>
+      fetch('https://api.stripe.com/v1/charges', {
+        method: 'POST',
+        body: JSON.stringify({ amount: order.total }),
+        signal,
+      }).then((res) => res.json()),
+    )
+  }
+}
 ```
+
+A controller injects that service, and an open circuit becomes a real `503`:
+
+```ts
+// app/controllers/payments_controller.ts
+import { inject } from '@adonisjs/core'
+import { HttpContext } from '@adonisjs/core/http'
+import { BrokenCircuitError } from '@adonis-agora/resilience'
+import PaymentGatewayService from '#services/payment_gateway_service'
+
+@inject()
+export default class PaymentsController {
+  constructor(private payments: PaymentGatewayService) {}
+
+  async store({ request, response }: HttpContext) {
+    try {
+      return response.ok(await this.payments.charge(request.body()))
+    } catch (error) {
+      if (error instanceof BrokenCircuitError) {
+        return response.serviceUnavailable({ message: 'Payments are temporarily unavailable' })
+      }
+      throw error
+    }
+  }
+}
+```
+
+The same singleton also runs an ordered `failover({ targets, run })` and inspects
+a circuit via `resilience.circuit('payments').snapshot()`.
 
 Events publish on `agora:resilience:*` via `@adonis-agora/diagnostics` when installed
 (read structurally through a global slot — no hard dependency), so a Telescope

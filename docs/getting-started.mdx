@@ -91,14 +91,22 @@ export default defineConfig({
 })
 ```
 
-The provider binds a singleton `ResilienceService` built lazily from this config. Import the ready-to-use singleton from `@adonis-agora/resilience/services/main` and run a named policy:
+The provider binds a singleton `ResilienceService` built lazily from this config. Import the ready-to-use singleton from `@adonis-agora/resilience/services/main` into a service and run the named policy around the outbound call:
 
-```ts title="app/services/billing_service.ts"
+```ts title="app/services/payment_gateway_service.ts"
 import resilience from '@adonis-agora/resilience/services/main'
+import type Order from '#models/order'
 
-export default class BillingService {
+export default class PaymentGatewayService {
   async charge(order: Order) {
-    return resilience.execute('payments', () => chargeCard(order))
+    // the named `payments` policy wraps the call to the payment gateway
+    return resilience.execute('payments', ({ signal }) =>
+      fetch('https://api.stripe.com/v1/charges', {
+        method: 'POST',
+        body: JSON.stringify({ amount: order.total, currency: 'usd' }),
+        signal, // thread the abort signal so the 2s timeout can cancel the request
+      }).then((res) => res.json())
+    )
   }
 }
 ```
