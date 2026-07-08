@@ -1,1 +1,1 @@
-export { runResilienceStoreContract } from './breaker/store-contract.js';
+export { runResilienceStoreContract } from './breaker/store_contract.js';

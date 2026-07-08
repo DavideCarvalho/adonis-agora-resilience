@@ -1,5 +1,5 @@
 import type { ApplicationService } from '@adonisjs/core/types';
-import { InMemoryResilienceStore } from '../breaker/in-memory.store.js';
+import { InMemoryResilienceStore } from '../breaker/in_memory_store.js';
 import type { ResilienceStore } from '../breaker/store.js';
 import type { Clock } from '../clock.js';
 import type { LucidResilienceStoreOptions } from './lucid.js';
@@ -16,9 +16,10 @@ export interface StoreContext {
 
 /**
  * A configured circuit-breaker store: a thunk the resilience provider calls at boot to build the
- * {@link ResilienceStore}. Each provider lazily imports its peer dependency (`@adonisjs/lucid`,
- * `@adonisjs/redis`/`ioredis`) inside the thunk, so the driver is only loaded when it is actually
- * selected — keeping those packages optional.
+ * {@link ResilienceStore}. Each provider imports its peer dependency (`@adonisjs/lucid`,
+ * `@adonisjs/redis`/`ioredis`) inside the thunk, so the driver is only loaded for a store that is
+ * listed in the config `stores` map — the provider builds every listed store at boot. A peer you
+ * never list is never imported, keeping those packages optional.
  */
 export type StoreProvider = (ctx: StoreContext) => Promise<ResilienceStore>;
 
@@ -57,7 +58,8 @@ export interface RedisStoreConfig extends RedisResilienceStoreOptions {
  * ```
  *
  * Each factory returns a {@link StoreProvider} — a lazy thunk. Calling it in the config file costs
- * nothing; the peer dependency is only imported when the provider builds the selected store at boot.
+ * nothing; the peer dependency is imported when the provider builds the store at boot, which it does
+ * for every store listed in the `stores` map (not only the `default` one).
  */
 export const stores = {
   /** In-process circuit store — single process, no peer dependency. */

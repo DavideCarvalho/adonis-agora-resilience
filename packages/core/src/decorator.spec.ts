@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { InMemoryResilienceStore } from './breaker/in-memory.store';
+import { InMemoryResilienceStore } from './breaker/in_memory_store';
 import { FakeClock } from './clock';
 import { withResilience } from './decorator';
 import { BrokenCircuitError } from './errors';
-import { circuitBreaker } from './policies/circuit-breaker';
+import { circuitBreaker } from './policies/circuit_breaker';
 import { retry } from './policies/retry';
 import { timeout } from './policies/timeout';
 

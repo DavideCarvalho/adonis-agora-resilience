@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { InMemoryResilienceStore } from '../breaker/in-memory.store';
+import { InMemoryResilienceStore } from '../breaker/in_memory_store';
 import { FakeClock } from '../clock';
 import { BrokenCircuitError } from '../errors';
-import { circuitBreaker } from './circuit-breaker';
+import { circuitBreaker } from './circuit_breaker';
 
 const base = (store: InMemoryResilienceStore) => ({
   key: 'k',

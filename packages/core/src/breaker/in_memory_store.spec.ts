@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FakeClock } from '../clock';
-import { InMemoryResilienceStore } from './in-memory.store';
+import { InMemoryResilienceStore } from './in_memory_store';
 import type { BreakerConfig } from './types';
 
 const cfg: BreakerConfig = { threshold: 3, cooldownMs: 1000 };

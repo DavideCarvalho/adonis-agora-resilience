@@ -13,10 +13,10 @@ import { ResilienceService } from '../src/resilience_service.js';
  * ```
  *
  * The binding factory is lazy and async, so config is read on first resolve (after the config
- * phase). The circuit store is selected by `config.default` from `config.stores` (built with the
- * `stores` factory); each store thunk lazily imports its peer dependency (`@adonisjs/lucid`,
- * `@adonisjs/redis`) only when that store is actually selected. An explicit `config.store` still
- * wins when provided.
+ * phase). On first resolve it builds every store listed in `config.stores` (each thunk imports its
+ * peer dependency — `@adonisjs/lucid`, `@adonisjs/redis` — as it is built); `config.default` then
+ * selects which of those built stores is the circuit store. A peer you never list is never
+ * imported. An explicit `config.store` still wins when provided.
  */
 export default class ResilienceProvider {
   constructor(protected app: ApplicationService) {}

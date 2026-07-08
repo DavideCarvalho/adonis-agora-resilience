@@ -34,6 +34,11 @@ type AsyncMethod = (...args: any[]) => Promise<any>;
  * there is no per-request container at decoration time, any
  * {@link circuitBreaker} policy must be given an explicit `store`.
  *
+ * Timeout caveat: the method body is invoked as `target.apply(this, args)`, which
+ * does not forward `ctx.signal`. So a `timeout` policy here rejects the returned
+ * promise when it fires, but the underlying method keeps running to completion in
+ * the background — the abort is not propagated into the method body.
+ *
  * Stacking note: prefer a single `@withResilience(...)` with the policies in
  * order. If you stack multiple decorators, remember that decorators apply
  * bottom-up — the closest decorator to the method is applied first and ends up

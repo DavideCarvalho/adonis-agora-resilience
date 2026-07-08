@@ -2,7 +2,7 @@ import type { ResilienceStore } from '../breaker/store.js';
 import type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from '../breaker/types.js';
 import type { Clock } from '../clock.js';
 import { systemClock } from '../clock.js';
-import { ADMIT_LUA, RECORD_LUA } from './redis-lua.js';
+import { ADMIT_LUA, RECORD_LUA } from './redis_lua.js';
 
 /**
  * The slice of an ioredis client this store relies on. Both a raw `ioredis` instance and an

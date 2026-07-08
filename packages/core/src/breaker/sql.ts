@@ -4,7 +4,7 @@ import {
   INITIAL_CIRCUIT_STATE,
   computeAdmit,
   computeRecord,
-} from './state-machine.js';
+} from './state_machine.js';
 import type { ResilienceStore } from './store.js';
 import type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from './types.js';
 

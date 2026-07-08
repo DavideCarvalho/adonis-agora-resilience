@@ -4,7 +4,7 @@ import {
   INITIAL_CIRCUIT_STATE,
   computeAdmit,
   computeRecord,
-} from './state-machine';
+} from './state_machine';
 import type { BreakerConfig } from './types';
 
 const cfg: BreakerConfig = { threshold: 3, cooldownMs: 1000 };

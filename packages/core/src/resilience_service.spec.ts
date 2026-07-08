@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { InMemoryResilienceStore } from './breaker/in-memory.store.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { InMemoryResilienceStore } from './breaker/in_memory_store.js';
+import { FakeClock } from './clock.js';
+import { circuitBreaker } from './policies/circuit_breaker.js';
 import { retry } from './policies/retry.js';
 import { timeout } from './policies/timeout.js';
 import { ResilienceService } from './resilience_service.js';
@@ -42,5 +44,71 @@ describe('ResilienceService', () => {
     const snap = await svc.circuit('db').snapshot();
     expect(snap.status).toBe('closed');
     await expect(svc.circuit('db').reset()).resolves.toBeUndefined();
+  });
+
+  it('threads the service sink into a named policy so execute() delivers events to the emitter', async () => {
+    const emit = vi.fn();
+    const store = new InMemoryResilienceStore(new FakeClock());
+    const svc = new ResilienceService({
+      eventEmitter: { emit },
+      store,
+      policies: {
+        payments: () => circuitBreaker({ key: 'payments', store, threshold: 3, cooldownMs: 1000 }),
+      },
+    });
+    const failing = async (): Promise<never> => {
+      throw new Error('boom');
+    };
+    // Trip the breaker: three failures reach the shared store and open the circuit.
+    for (let i = 0; i < 3; i++) await svc.execute('payments', failing).catch(() => {});
+    const names = emit.mock.calls.map((c) => c[0]);
+    expect(names).toContain('resilience.circuit.opened');
+  });
+
+  it('combines an explicit policy onEvent with the injected service sink (both fire)', async () => {
+    const emit = vi.fn();
+    const spy = vi.fn();
+    const store = new InMemoryResilienceStore(new FakeClock());
+    const svc = new ResilienceService({
+      eventEmitter: { emit },
+      store,
+      policies: {
+        payments: () =>
+          circuitBreaker({ key: 'payments', store, threshold: 3, cooldownMs: 1000, onEvent: spy }),
+      },
+    });
+    const failing = async (): Promise<never> => {
+      throw new Error('boom');
+    };
+    for (let i = 0; i < 3; i++) await svc.execute('payments', failing).catch(() => {});
+    expect(spy.mock.calls.map((c) => c[0].type)).toContain('circuit-opened');
+    expect(emit.mock.calls.map((c) => c[0])).toContain('resilience.circuit.opened');
+  });
+
+  it('delivers timeout events on the execute path', async () => {
+    const emit = vi.fn();
+    const clock = new FakeClock();
+    const svc = new ResilienceService({
+      eventEmitter: { emit },
+      policies: { slow: () => timeout(50, { clock }) },
+    });
+    const settled = svc.execute('slow', () => new Promise<never>(() => {})).catch(() => {});
+    clock.advance(50); // fire the timeout timer
+    await settled;
+    expect(emit.mock.calls.map((c) => c[0])).toContain('resilience.timeout');
+  });
+
+  it('delivers retry events on the execute path', async () => {
+    const emit = vi.fn();
+    const svc = new ResilienceService({
+      eventEmitter: { emit },
+      policies: { flaky: () => retry({ attempts: 2 }) },
+    });
+    await svc
+      .execute('flaky', async () => {
+        throw new Error('always');
+      })
+      .catch(() => {});
+    expect(emit.mock.calls.map((c) => c[0])).toContain('resilience.retry');
   });
 });

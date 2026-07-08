@@ -1,9 +1,9 @@
-import { InMemoryResilienceStore } from './breaker/in-memory.store.js';
+import { InMemoryResilienceStore } from './breaker/in_memory_store.js';
 import type { ResilienceStore } from './breaker/store.js';
 import type { CircuitSnapshot } from './breaker/types.js';
-import { type EventSink, combineSinks, noopSink } from './events.js';
+import { type EventSink, combineSinks, noopSink, withAmbientSink } from './events.js';
 import { diagnosticsSink } from './integration/diagnostics.js';
-import { type EventEmitterLike, eventEmitterSink } from './integration/event-emitter.js';
+import { type EventEmitterLike, eventEmitterSink } from './integration/event_emitter.js';
 import { type FailoverOptions, failover } from './policies/failover.js';
 import type { Operation, Policy } from './policy.js';
 
@@ -94,9 +94,16 @@ export class ResilienceService {
     return store;
   }
 
+  /**
+   * Build a named policy, injecting this service's {@link sink} as the ambient fallback for the
+   * synchronous window in which the factory constructs its policy. Policies built here (e.g. a
+   * `circuitBreaker`/`timeout`/`retry` from `config/resilience.ts`) then emit to diagnostics + the
+   * configured EventEmitter without the public `() => Policy` signature having to carry a sink. An
+   * `onEvent` the factory passes explicitly is preserved — both fire (see {@link policySink}).
+   */
   private resolve(name: string): Policy {
     const factory = this.policies[name];
     if (!factory) throw new Error(`Unknown resilience policy "${name}".`);
-    return factory();
+    return withAmbientSink(this.sink, factory);
   }
 }

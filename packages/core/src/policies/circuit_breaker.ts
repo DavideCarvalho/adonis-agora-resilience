@@ -1,7 +1,7 @@
 import type { ResilienceStore } from '../breaker/store.js';
 import type { BreakerConfig } from '../breaker/types.js';
 import { BrokenCircuitError } from '../errors.js';
-import { type EventSink, noopSink } from '../events.js';
+import { type EventSink, policySink } from '../events.js';
 import { type Operation, type Policy, type PolicyContext, rootContext } from '../policy.js';
 
 export interface CircuitBreakerOptions {
@@ -14,7 +14,7 @@ export interface CircuitBreakerOptions {
 }
 
 export function circuitBreaker(opts: CircuitBreakerOptions): Policy {
-  const onEvent: EventSink = opts.onEvent ?? noopSink;
+  const onEvent: EventSink = policySink(opts.onEvent);
   const cfg: BreakerConfig = {
     threshold: opts.threshold,
     cooldownMs: opts.cooldownMs,

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { combineSinks } from '../events';
-import { eventEmitterSink, resilienceEventName } from './event-emitter';
+import { eventEmitterSink, resilienceEventName } from './event_emitter';
 
 describe('eventEmitterSink', () => {
   it('mirrors events as dotted resilience.* names with the event payload', () => {

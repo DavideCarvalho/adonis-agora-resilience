@@ -6,7 +6,7 @@ import type { Admission, BreakerConfig, CircuitStatus } from './types.js';
  * directly inside their own atomic cycle).
  *
  * ⚠️ The Redis store CANNOT call these — it reimplements the same branching in Lua so the whole
- * cycle runs atomically on the server (see `stores/redis-lua.ts`). Any change
+ * cycle runs atomically on the server (see `stores/redis_lua.ts`). Any change
  * to the transitions here MUST be mirrored in those scripts, or a Redis-backed circuit will diverge
  * from the others. The shared `runResilienceStoreContract` is the guard that catches such drift.
  */
