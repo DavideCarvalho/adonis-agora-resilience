@@ -15,7 +15,7 @@ Getting `@adonis-agora/resilience` running is three steps: install the package, 
 ## Prerequisites
 
 - **Node.js 20.6+**
-- **AdonisJS 6** (`@adonisjs/core ^6.12`)
+- **AdonisJS 7** (`@adonisjs/core ^7.3.0`)
 - **TypeScript 5+**
 
 ---
@@ -84,7 +84,7 @@ export default defineConfig({
   // Emit diagnostics events on `agora:resilience:*`. Default true.
   // emit: true,
 
-  // Named, reusable policies resolvable via `resilience.execute('db', op)`.
+  // Named, reusable policies resolvable via `resilience.execute('payments', op)`.
   policies: {
     payments: () => wrap(timeout(2_000), retry({ attempts: 3, backoff: exponential(100) })),
   },

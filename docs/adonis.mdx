@@ -163,14 +163,17 @@ Prefer injecting `ResilienceService` directly? `@inject()` resolves the same con
 
 ```ts title="app/services/inventory_service.ts"
 import { inject } from '@adonisjs/core'
-import { ResilienceService } from '@adonis-agora/resilience'
+import { ResilienceService, wrap, timeout, retry, exponential } from '@adonis-agora/resilience'
+
+// an inline policy — no `config/resilience.ts` entry required
+const inventoryPolicy = wrap(timeout(2_000), retry({ attempts: 3, backoff: exponential(100) }))
 
 @inject()
 export default class InventoryService {
   constructor(private resilience: ResilienceService) {}
 
   check(sku: string) {
-    return this.resilience.execute('inventory', ({ signal }) =>
+    return this.resilience.execute(inventoryPolicy, ({ signal }) =>
       fetch(`https://inventory.internal/stock/${sku}`, { signal }).then((res) => res.json())
     )
   }

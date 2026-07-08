@@ -64,9 +64,10 @@ To react to transitions **inside your app** — invalidate a cache when a circui
 
 ```ts title="config/resilience.ts"
 import { defineConfig } from '@adonis-agora/resilience'
+import type { EventEmitterLike } from '@adonis-agora/resilience'
 import emitter from '@adonisjs/core/services/emitter'
 
-export default defineConfig({ eventEmitter: emitter as any })
+export default defineConfig({ eventEmitter: emitter as unknown as EventEmitterLike })
 ```
 
 Event names are derived by `resilienceEventName(type)` — dots replace dashes, under a `resilience.` prefix:
