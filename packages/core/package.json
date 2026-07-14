@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/resilience",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Resilience policies for AdonisJS — timeout, retry, circuit breaker, and ordered failover, with pluggable circuit stores. Part of the Agora ecosystem.",
   "license": "MIT",
   "repository": {
