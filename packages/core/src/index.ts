@@ -51,3 +51,6 @@ export { ResilienceService } from './resilience_service.js';
 export type { ResilienceServiceOptions } from './resilience_service.js';
 export { defineConfig } from './define_config.js';
 export type { ResilienceConfig } from './define_config.js';
+
+// Re-export the configure hook from the package root so `node ace configure` finds it
+export { configure } from '../configure.js'
