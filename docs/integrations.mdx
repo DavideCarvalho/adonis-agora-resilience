@@ -26,7 +26,14 @@ interface ResilienceEvent {
 type EventSink = (event: ResilienceEvent) => void
 ```
 
-In the current core, the **circuit breaker** emits `circuit-opened`, `circuit-closed`, `circuit-half-open` and `short-circuited`, and **failover** emits `failover` (carrying `target`, `index`, `error`). The `timeout` and `retry` types are reserved in the union for future/custom sinks.
+Every type in the union is emitted by the core policies today:
+
+- the **circuit breaker** emits `circuit-opened`, `circuit-closed`, `circuit-half-open` and `short-circuited`;
+- **failover** emits `failover` (carrying `target`, `index`, `error`);
+- the **timeout** policy emits `timeout` (carrying `ms`, the elapsed budget) when an operation exceeds its deadline;
+- the **retry** policy emits `retry` (carrying `attempt`, the 1-based number of the *upcoming* re-attempt, and `error`, the failure that triggered it) before each re-try.
+
+`timeout` and `retry` fire only when a sink is wired to the policy — either an explicit `onEvent`, or the ambient sink the `ResilienceService` injects on the `execute()` path — so they cost nothing when nobody is listening. Like the others, they flow through `diagnosticsSink()` as `agora:resilience:timeout` / `agora:resilience:retry`, and through the EventEmitter mirror as `resilience.timeout` / `resilience.retry`.
 
 Pass `onEvent` to any policy, or let the `ResilienceService` wire the sinks for you. Combine several with `combineSinks` — a misbehaving sink can't break the others or the policy:
 

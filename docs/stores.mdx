@@ -182,6 +182,10 @@ export default defineConfig({
 
 ## Bring your own engine
 
+<Callout type="info">
+This is the quick version — reusing the SQL base for another relational driver. For the full picture (reusing the pure state machine for a non-SQL engine, the `redisResilienceStore` factory, implementing `ResilienceStore` from scratch, and wiring it through `ResilienceService.circuitStore()`), see [Building a custom store](/docs/resilience/custom-store).
+</Callout>
+
 Under the hood the Lucid store is just a thin `SqlDriver` over the agnostic `SqlResilienceStore` exported from core. To back the breaker with any other SQL driver, implement `SqlDriver` and hand it to `SqlResilienceStore`, then wire it as an explicit `store`:
 
 ```ts

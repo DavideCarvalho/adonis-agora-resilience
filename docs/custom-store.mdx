@@ -1,0 +1,240 @@
+---
+title: Building a custom store
+description: Back the circuit breaker with any engine — reuse the SQL base and a tiny SqlDriver, reuse the pure state machine (computeAdmit / computeRecord), or implement ResilienceStore from scratch — then wire it through the ResilienceService.
+icon: Wrench
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+The three built-in [stores](/docs/resilience/stores) — memory, Lucid and Redis — cover most apps. But the breaker's state lives behind a deliberately small interface, and the pieces that make it correct are all **exported**, so you can back a circuit with any engine you like without re-deriving the state machine. This page is the reference for doing that.
+
+There are three tiers of reuse, ordered from **most** code reused to **least**. Pick the highest one your engine allows.
+
+| Tier | You bring | You reuse | When |
+|------|-----------|-----------|------|
+| **1** | a `SqlDriver` (dialect + `transaction`/`read`/`exec`) | `SqlResilienceStore` — the whole atomic cycle + SQL | any relational engine (a non-Lucid ORM, a raw pool) |
+| **2** | the atomic load→compute→persist loop | `computeAdmit` / `computeRecord` — the pure state machine | a JS-driven engine that isn't SQL (a document store, a KV with transactions) |
+| **3** | everything, incl. the branching | only the `ResilienceStore` shape + the contract suite | an engine where the whole cycle must run server-side (like Redis Lua) |
+
+Whichever tier you land on, the finish line is the same: **pass the [shared contract suite](/docs/resilience/testing#validating-a-store)**. If `runResilienceStoreContract` is green, your store grants exactly one half-open probe under concurrency and transitions identically to the built-ins.
+
+---
+
+## The interface you are implementing
+
+Every store — built-in or yours — satisfies one interface:
+
+```ts
+interface ResilienceStore {
+  admit(key: string, cfg: BreakerConfig): Promise<Admission>                       // may I run? (and am I the probe?)
+  record(key: string, cfg: BreakerConfig, ok: boolean, probe: boolean): Promise<CircuitStatus>
+  snapshot(key: string): Promise<CircuitSnapshot>                                  // read-only inspect
+  reset(key: string): Promise<void>                                                // back to closed
+}
+```
+
+The one hard rule: **`admit` and `record` must be atomic** against your engine. The distributed guarantee — exactly one instance wins the half-open probe under concurrent load — depends on the load→compute→persist cycle being indivisible. A `SELECT … FOR UPDATE` transaction, a Lua script, a compare-and-swap loop: any of these works, as long as no two callers can interleave a read and a write.
+
+---
+
+## Tier 1 — reuse the SQL base with a `SqlDriver`
+
+If your engine speaks SQL, you should almost never write breaker logic. `SqlResilienceStore` already owns the atomic cycle, the dialect-aware statements, and the DDL; an adapter is reduced to a tiny **`SqlDriver`** that says which placeholder style the dialect uses and how to run a transaction, a plain read, and a DDL statement. This is exactly how the built-in Lucid store is built.
+
+```ts
+import { SqlResilienceStore, type SqlDriver } from '@adonis-agora/resilience'
+
+const driver: SqlDriver = {
+  // 'numbered' → Postgres-style `$1, $2` (TypeORM, Prisma); 'positional' → `?` (MikroORM, most others).
+  placeholders: 'numbered',
+  // false on engines without SELECT … FOR UPDATE (e.g. SQLite serialises writers itself). Defaults true.
+  lockRows: true,
+  // Run `body` in ONE atomic transaction — the breaker relies on FOR UPDATE locking within it.
+  transaction: (body) =>
+    pool.transaction((tx) =>
+      body({
+        run: (sql, params) => tx.query(sql, params).then(() => undefined),
+        all: (sql, params) => tx.query(sql, params).then((r) => r.rows),
+      }),
+    ),
+  // Non-transactional read, used by snapshot().
+  read: (sql, params) => pool.query(sql, params).then((r) => r.rows),
+  // A DDL statement (no params) — used by ensureSchema().
+  exec: (sql) => pool.query(sql).then(() => undefined),
+}
+
+const store = new SqlResilienceStore(driver)
+await store.ensureSchema() // runs CIRCUITS_DDL — idempotent CREATE TABLE IF NOT EXISTS
+```
+
+The full contract:
+
+```ts
+type SqlPlaceholderStyle = 'numbered' | 'positional'
+
+interface SqlTx {
+  run(sql: string, params: unknown[]): Promise<void>      // execute a write; result discarded
+  all(sql: string, params: unknown[]): Promise<unknown[]> // execute a read; return rows
+}
+
+interface SqlDriver {
+  readonly placeholders: SqlPlaceholderStyle
+  readonly lockRows?: boolean                                       // default true
+  transaction<R>(body: (tx: SqlTx) => Promise<R>): Promise<R>
+  read(sql: string, params: unknown[]): Promise<unknown[]>
+  exec(sql: string): Promise<void>
+}
+
+interface SqlResilienceStoreOptions {
+  clock?: Clock // inject a FakeClock in tests; defaults to the system clock
+}
+
+new SqlResilienceStore(driver: SqlDriver, opts?: SqlResilienceStoreOptions)
+```
+
+<Callout type="info">
+The table is a single, five-column schema — `key`, `status`, `failures`, `open_until`, `probes` — shared by every SQL adapter. `store.ensureSchema()` runs the idempotent `CIRCUITS_DDL`; if you own the schema through a migration instead, skip that call. The columns are identical to the ones the [Lucid migration](/docs/resilience/stores#lucid-migration-over-auto-create) creates, because both go through `CIRCUITS_DDL`.
+</Callout>
+
+Everything about the transitions — when a circuit opens, how the half-open probe is granted, the cooldown math — lives inside `SqlResilienceStore` (via the state machine below). Your driver is pure plumbing.
+
+---
+
+## Tier 2 — reuse the pure state machine
+
+For an engine that isn't relational but *can* run a JS load→compute→persist cycle atomically (a document DB with transactions, a KV store with optimistic locking), skip the SQL layer and drive the breaker's **pure state machine** yourself. Two functions — `computeAdmit` and `computeRecord` — are the single source of truth for the transitions, shared by the in-memory and SQL stores. They do no I/O:
+
+```ts
+import {
+  computeAdmit,
+  computeRecord,
+  INITIAL_CIRCUIT_STATE,
+  type CircuitState,
+} from '@adonis-agora/resilience'
+
+// The plain, serializable unit every store persists:
+interface CircuitState {
+  status: 'closed' | 'open' | 'half-open'
+  failures: number
+  openUntil: number
+  probes: number
+}
+
+// computeAdmit(prev, cfg, now)  → { state, admission }
+// computeRecord(prev, cfg, ok, probe, now) → { state, status }
+```
+
+Your job is only the three I/O steps around them — **load** the current state, **compute** the next one, **persist** it — all inside whatever atomic primitive your engine offers. A brand-new key loads as `INITIAL_CIRCUIT_STATE`:
+
+```ts
+class MyStore implements ResilienceStore {
+  constructor(private clock: Clock = systemClock) {}
+
+  async admit(key: string, cfg: BreakerConfig): Promise<Admission> {
+    return this.engine.atomically(key, async (tx) => {
+      const prev = (await tx.load(key)) ?? { ...INITIAL_CIRCUIT_STATE }
+      const { state, admission } = computeAdmit(prev, cfg, this.clock.now())
+      await tx.save(key, state)
+      return admission
+    })
+  }
+
+  async record(key: string, cfg: BreakerConfig, ok: boolean, probe: boolean) {
+    return this.engine.atomically(key, async (tx) => {
+      const prev = (await tx.load(key)) ?? { ...INITIAL_CIRCUIT_STATE }
+      const { state, status } = computeRecord(prev, cfg, ok, probe, this.clock.now())
+      await tx.save(key, state)
+      return status
+    })
+  }
+
+  // snapshot() → a read-only projection of the state; reset() → delete/clear the key.
+}
+```
+
+<Callout type="warn" title="Take the clock as a dependency">
+Both compute functions take `now` as an argument rather than reading the wall clock themselves — that is what makes them pure and testable. Thread a `Clock` through your store (default it to `systemClock`) and pass `clock.now()`. In tests, inject a `FakeClock` so you can drive cooldowns deterministically — the same seam every built-in store uses.
+</Callout>
+
+### Already on raw ioredis? Use the factory
+
+If your "custom" engine is just a Redis client the built-in `stores.redis()` config can't reach — a hand-managed `ioredis` instance, an `ioredis-mock` in a test — you don't need any of the above. The `redisResilienceStore` factory wraps any `RedisLike` client (raw ioredis or an `@adonisjs/redis` connection) into a ready store whose Lua scripts already mirror `computeAdmit` / `computeRecord`:
+
+```ts
+import { redisResilienceStore } from '@adonis-agora/resilience'
+import { Redis } from 'ioredis'
+
+const store = redisResilienceStore(new Redis(process.env.REDIS_URL), {
+  keyPrefix: 'agora:resilience:circuit:', // default
+  ttlMs: 60_000,                          // optional sliding TTL — idle circuits reset to closed
+})
+```
+
+`RedisLike` is structural (`defineCommand` + `hmget` + `del`), so anything with that surface works — no `@adonisjs/redis` required.
+
+---
+
+## Tier 3 — implement `ResilienceStore` from scratch
+
+When the whole cycle must run **server-side** — the Redis store is the canonical example, reimplementing the branching in a Lua script so admit/record are atomic on the server — you can't reuse `computeAdmit` / `computeRecord` at all: they're JavaScript, and your atomic unit runs elsewhere. Implement the four methods directly.
+
+<Callout type="warn" title="You are now the source-of-truth twin">
+Reimplementing the transitions off-process means your logic must stay byte-for-byte faithful to `computeAdmit` / `computeRecord`. Any change to the core state machine has to be mirrored in your script. There is exactly one guard against drift, and you must use it: the contract suite.
+</Callout>
+
+---
+
+## Validate against the contract suite
+
+Every tier ends the same way. Point `runResilienceStoreContract` at a factory for your store and it exercises the full transition table and the concurrency guarantee — the identical suite the built-ins pass:
+
+```ts
+import { runResilienceStoreContract } from '@adonis-agora/resilience/testing'
+import type { Clock } from '@adonis-agora/resilience'
+
+// The factory receives a Clock the suite controls (a FakeClock), so cooldowns
+// are driven deterministically — thread it into your store.
+runResilienceStoreContract('MyStore', (clock: Clock) => new MyStore(clock))
+```
+
+See [Testing → validating a store](/docs/resilience/testing#validating-a-store) for the full harness. If it's green, your store is a drop-in for any built-in.
+
+---
+
+## Wiring it in
+
+A hand-constructed store is passed as `store` in `config/resilience.ts` — it takes precedence over `default` / `stores`:
+
+```ts title="config/resilience.ts"
+import { defineConfig } from '@adonis-agora/resilience'
+import { store } from '#lib/my_resilience_store'
+
+export default defineConfig({ store })
+```
+
+Then resolve it wherever you build a breaker. The `ResilienceService` exposes **`circuitStore(name?)`**: with no argument it returns the configured default store; with a name it returns the store registered under that key in `stores` (and throws for an unknown name). That is the seam for pointing an explicit `circuitBreaker` at a specific store:
+
+```ts
+import resilience from '@adonis-agora/resilience/services/main'
+import { circuitBreaker } from '@adonis-agora/resilience'
+
+// The default store (your custom one, when configured as `store`):
+circuitBreaker({ key: 'payments', store: resilience.circuitStore(), threshold: 5, cooldownMs: 30_000 })
+
+// A specific named store from config.stores:
+circuitBreaker({ key: 'search', store: resilience.circuitStore('redis'), threshold: 3, cooldownMs: 10_000 })
+```
+
+<Callout type="info">
+`circuitStore()` returns the same `ResilienceStore` interface regardless of tier — so nothing downstream can tell a custom store from a built-in. That is the whole point of the small interface: the breaker, the service, and the config layer are all engine-agnostic.
+</Callout>
+
+---
+
+## Next steps
+
+- [Stores](/docs/resilience/stores) — the three built-in stores and the config that selects them
+- [Testing](/docs/resilience/testing#validating-a-store) — the contract suite in full
+- [Integrations](/docs/resilience/integrations) — emitting a custom store's transitions over diagnostics
