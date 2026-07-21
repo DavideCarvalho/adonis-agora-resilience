@@ -39,15 +39,12 @@
       "default": "./dist/src/testing.js"
     }
   },
-  "files": [
-    "dist/",
-    "README.md",
-    "CHANGELOG.md"
-  ],
+  "files": ["dist/", "README.md", "CHANGELOG.md"],
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json && pnpm run copy:stubs",
     "copy:stubs": "mkdir -p dist/stubs/config && cp stubs/config/resilience.stub dist/stubs/config/resilience.stub",
+    "prepack": "pnpm run build",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"
