@@ -53,7 +53,7 @@
     "@adonisjs/core": "^7.3.0",
     "@adonisjs/lucid": "^22.4.0",
     "@adonisjs/redis": "^9.2.0",
-    "ioredis": "^5.0.0"
+    "ioredis": "^5.0.0 || ^6.0.0"
   },
   "peerDependenciesMeta": {
     "@adonisjs/lucid": {
@@ -74,7 +74,7 @@
     "@types/node": "20.19.43",
     "@vinejs/vine": "4.4.0",
     "better-sqlite3": "11.10.0",
-    "ioredis": "5.11.1",
+    "ioredis": "6.0.0",
     "ioredis-mock": "8.13.1",
     "luxon": "3.7.2",
     "typescript": "5.9.3",
