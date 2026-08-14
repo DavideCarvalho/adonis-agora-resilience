@@ -73,7 +73,7 @@
     "@adonisjs/redis": "9.2.0",
     "@types/node": "20.19.43",
     "@vinejs/vine": "4.4.0",
-    "better-sqlite3": "11.10.0",
+    "better-sqlite3": "13.0.3",
     "ioredis": "5.11.1",
     "ioredis-mock": "8.13.1",
     "luxon": "3.7.2",
