@@ -118,7 +118,7 @@ try {
 }
 ```
 
-Unlike the NestJS counterpart, the breaker has no implicit module-wide store: `store` is a required option. Pass the same store instance to every breaker that should share state (or wire one store into [`config/resilience.ts`](/docs/resilience/adonis) and reuse it).
+The breaker has no implicit, module-wide store: `store` is a required option, so it is always obvious which circuits share state. Pass the same store instance to every breaker that should share state (or wire one store into [`config/resilience.ts`](/docs/resilience/adonis) and reuse it).
 
 <Callout type="info">
 The in-memory store keeps breaker state per process. To trip the breaker fleet-wide — one instance opens, all instances skip — pass a distributed store and the half-open probe is coordinated atomically. See [Stores](/docs/resilience/stores).
