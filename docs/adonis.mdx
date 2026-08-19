@@ -9,25 +9,20 @@ import { Callout } from 'fumadocs-ui/components/callout';
 The AdonisJS surface is three things: **`config/resilience.ts`** where you declare named policies + the store, the **provider** that binds a singleton `ResilienceService` from that config, and the **`ResilienceService`** itself for running policies imperatively and inspecting circuits.
 
 <Callout type="info">
-NestJS used `@Timeout` / `@Retry` / `@CircuitBreaker` decorators plus a provider explorer that rewrapped methods at startup. AdonisJS has no idiomatic provider scan, so the decorator/explorer path is **dropped**. Use the policy functions directly (`wrap(timeout(…), retry(…))`) or register named policies in config and run them via `ResilienceService.execute('name', op)`.
+There are two ways to reach a policy from application code: build one inline with the policy functions (`wrap(timeout(…), retry(…))`) and hand it to `ResilienceService.execute(policy, op)`, or register it by name under `policies` in the config and run it with `ResilienceService.execute('name', op)`. Only the named form gets the service's event sink wired in for you — see [Integrations](/docs/resilience/integrations#events).
 </Callout>
 
 ## The provider
 
-`node ace configure @adonis-agora/resilience` registers `@adonis-agora/resilience/resilience_provider`, which binds `ResilienceService` as a **singleton**, built lazily from `config/resilience.ts`:
+`node ace configure @adonis-agora/resilience` registers `@adonis-agora/resilience/resilience_provider` in `adonisrc.ts`. Nothing is copied into your `providers/` directory — the provider ships with the package, and it binds `ResilienceService` in the container as a **singleton**.
 
-```ts title="providers/resilience_provider.ts (published)"
-export default class ResilienceProvider {
-  register() {
-    this.app.container.singleton(ResilienceService, () => {
-      const config = this.app.config.get<ResilienceConfig>('resilience', {})
-      return new ResilienceService(config)
-    })
-  }
-}
-```
+What that means in practice:
 
-Because the factory is lazy, the config is read on first resolve (after the config phase), and the store + event sink come straight from the file.
+- **The config is read lazily.** The binding is built the first time something resolves `ResilienceService` (or imports the `services/main` singleton), which is after the config phase — so `config/resilience.ts` is fully available, and an app that never touches resilience never pays for it.
+- **Resolving the service is asynchronous.** Building the stores means importing driver packages, so the container factory is `async`. Resolve it with `await app.container.make(ResilienceService)`, or just import `@adonis-agora/resilience/services/main`, which does that for you. `@inject()` handles it too.
+- **Every configured store is built, once.** Each entry in `stores` is built during that first resolve and reused for the life of the process. See [Stores](/docs/resilience/stores#config-driven-stores) for why that decides which peer dependencies you must install.
+- **A missing `default` fails loudly.** If `default` names a store that isn't in the `stores` map, the resolve throws `config.default is "x", but config.stores.x is not defined` instead of silently falling back to the in-memory store.
+- **An explicit `store` still wins.** A fully-constructed `ResilienceStore` passed as `store` takes precedence over `default` / `stores`; with neither, the service uses an in-process in-memory store.
 
 ## The config
 
@@ -58,7 +53,7 @@ export default defineConfig({
 })
 ```
 
-For a distributed store, point `default` at a Lucid or Redis store built with the `stores` factory — each lazily imports its peer dependency only when selected:
+For a distributed store, point `default` at a Lucid or Redis store built with the `stores` factory. Every store you list is built when the service is first resolved, and the Lucid / Redis stores import their peer dependency as they are built — so list only the ones whose peers you have installed:
 
 ```ts title="config/resilience.ts"
 import { defineConfig, stores, wrap, timeout, retry, exponential } from '@adonis-agora/resilience'
@@ -103,7 +98,8 @@ export default class PaymentGatewayService {
     )
   }
 
-  // …or an inline policy for a quick liveness probe
+  // …or an inline policy for a quick liveness probe. Built here at the call site,
+  // so it runs fine but emits no events — see the note below.
   async ping() {
     return resilience.execute(timeout(1_000), ({ signal }) =>
       fetch('https://api.stripe.com/v1/health', { signal })
@@ -159,13 +155,18 @@ export default class PaymentsController {
 router.post('orders/:id/pay', [PaymentsController, 'store'])
 ```
 
+<Callout type="warn" title="Inline policies are silent">
+`execute()` accepts a name or a ready-made `Policy`, and the two differ in one way that isn't visible at the call site: only a **named** policy is built by the service, so only a named policy gets the service's event sink. A policy you construct yourself — the `timeout(1_000)` above, or a module-level `wrap(…)` — emits no diagnostics and reaches no `eventEmitter` mirror unless you pass it an explicit `onEvent`. See [Integrations](/docs/resilience/integrations#which-policies-get-the-services-sink).
+</Callout>
+
 Prefer injecting `ResilienceService` directly? `@inject()` resolves the same container-bound singleton — handy when a service holds no other state:
 
 ```ts title="app/services/inventory_service.ts"
 import { inject } from '@adonisjs/core'
 import { ResilienceService, wrap, timeout, retry, exponential } from '@adonis-agora/resilience'
 
-// an inline policy — no `config/resilience.ts` entry required
+// an inline policy — no `config/resilience.ts` entry required (and, being built here,
+// no event sink either: add `onEvent` to the policies if you want it observable)
 const inventoryPolicy = wrap(timeout(2_000), retry({ attempts: 3, backoff: exponential(100) }))
 
 @inject()
