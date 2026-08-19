@@ -4,6 +4,11 @@
   "rangeStrategy": "pin",
   "packageRules": [
     {
+      "description": "Never touch engines.node: the global rangeStrategy 'pin' would rewrite the supported-range declaration into a single exact version, which breaks installs for everyone on another Node major.",
+      "matchDepTypes": ["engines"],
+      "enabled": false
+    },
+    {
       "matchDepTypes": ["dependencies", "devDependencies"],
       "matchUpdateTypes": ["patch", "minor"],
       "automerge": true
