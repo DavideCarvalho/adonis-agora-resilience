@@ -185,7 +185,21 @@ export default class InventoryService {
 | --- | --- |
 | `execute(name \| policy, op)` | run a named policy (resolved from config) or an inline `Policy` |
 | `failover(opts)` | the [`failover`](/docs/resilience/policies#failover) primitive, wired to the service's event sink |
+| `circuitStore(name?)` | the configured store — the default one with no argument, or the entry under that key in `stores` |
 | `circuit(key).snapshot()` | read the current `CircuitSnapshot` (`status`, `failures`, `openUntil?`) |
 | `circuit(key).reset()` | force a circuit back to closed |
 
-The service also exposes its configured `store` and `sink` as readonly properties, should you need to share the same store with a standalone breaker. `execute('unknown')` throws `Unknown resilience policy "unknown".` if the name isn't registered.
+`circuitStore()` is how you point a hand-built breaker at a store from your config, instead of constructing a second one that tracks its own, separate circuits:
+
+```ts
+import resilience from '@adonis-agora/resilience/services/main'
+import { circuitBreaker } from '@adonis-agora/resilience'
+
+// the store `default` points at
+circuitBreaker({ key: 'payments', store: resilience.circuitStore(), threshold: 5, cooldownMs: 30_000 })
+
+// a specific entry from config.stores — this is the only way to reach a non-default store
+circuitBreaker({ key: 'search', store: resilience.circuitStore('redis'), threshold: 3, cooldownMs: 10_000 })
+```
+
+An unknown name throws `Unknown resilience store "x".`, and `execute('unknown')` throws `Unknown resilience policy "unknown".` if the name isn't registered. The service also exposes its configured `store` and `sink` as readonly properties — `store` is the same object `circuitStore()` returns.

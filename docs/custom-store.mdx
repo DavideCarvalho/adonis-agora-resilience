@@ -205,7 +205,11 @@ See [Testing → validating a store](/docs/resilience/testing#validating-a-store
 
 ## Wiring it in
 
-A hand-constructed store is passed as `store` in `config/resilience.ts` — it takes precedence over `default` / `stores`:
+There are two ways in, and they are not interchangeable.
+
+### As the single default store
+
+If your store is *the* store for the app, pass the constructed instance as `store`. It takes precedence over `default` / `stores`:
 
 ```ts title="config/resilience.ts"
 import { defineConfig } from '@adonis-agora/resilience'
@@ -214,17 +218,69 @@ import { store } from '#lib/my_resilience_store'
 export default defineConfig({ store })
 ```
 
-Then resolve it wherever you build a breaker. The `ResilienceService` exposes **`circuitStore(name?)`**: with no argument it returns the configured default store; with a name it returns the store registered under that key in `stores` (and throws for an unknown name). That is the seam for pointing an explicit `circuitBreaker` at a specific store:
+This is the shortest path, but it has a ceiling: a `store` is one instance, constructed while the config file is evaluated. It cannot reach the container, and it cannot sit alongside other named stores.
+
+### As a named store, with a `StoreProvider`
+
+To give your store a **name** in the `stores` map — so `default` can point at it and `circuitStore('mongo')` can reach it — register a `StoreProvider`. That is exactly what `stores.memory()`, `stores.lucid()` and `stores.redis()` return:
+
+```ts
+type StoreProvider = (ctx: StoreContext) => Promise<ResilienceStore>
+
+interface StoreContext {
+  app: ApplicationService  // the booted application
+}
+```
+
+A provider is a thunk the resilience provider calls once at boot. Two things make it worth the extra function: it defers construction until the app is booted, and it hands you the **container**, so your store can resolve connections and configuration like any other service. Follow the built-ins and expose a small factory that takes your options and returns the thunk:
+
+```ts title="app/lib/mongo_resilience_store.ts"
+import type { StoreProvider } from '@adonis-agora/resilience'
+import { MongoResilienceStore } from './mongo_store.js'
+
+export function mongoStore(config: { collection?: string } = {}): StoreProvider {
+  // Everything inside runs at boot, with the app available.
+  return async ({ app }) => {
+    const mongo = await app.container.make('mongo')
+    return new MongoResilienceStore(mongo, config.collection ?? 'resilience_circuits')
+  }
+}
+```
+
+Import the driver *inside* the thunk if it should stay an optional dependency — a package that is only imported by a thunk nobody lists is never loaded.
+
+Now it behaves like a built-in everywhere:
+
+```ts title="config/resilience.ts"
+import { defineConfig, stores } from '@adonis-agora/resilience'
+import { mongoStore } from '#lib/mongo_resilience_store'
+
+export default defineConfig({
+  default: 'mongo',
+  stores: {
+    memory: stores.memory(),
+    mongo: mongoStore({ collection: 'circuits' }),
+  },
+})
+```
+
+<Callout type="warn">
+Every store listed under `stores` is built at boot, not just the one `default` names — so a provider that throws (a missing connection, an absent driver) fails the app's startup even if nothing ever uses that store. See [Stores](/docs/resilience/stores#config-driven-stores).
+</Callout>
+
+### Reaching it from code
+
+Either way, the `ResilienceService` exposes **`circuitStore(name?)`**: with no argument it returns the configured default store; with a name it returns the store registered under that key in `stores`, and throws `Unknown resilience store "x".` for a name that isn't there. That is the seam for pointing an explicit `circuitBreaker` at a specific store:
 
 ```ts
 import resilience from '@adonis-agora/resilience/services/main'
 import { circuitBreaker } from '@adonis-agora/resilience'
 
-// The default store (your custom one, when configured as `store`):
+// The default store (your custom one, when configured as `store` or as `default`):
 circuitBreaker({ key: 'payments', store: resilience.circuitStore(), threshold: 5, cooldownMs: 30_000 })
 
-// A specific named store from config.stores:
-circuitBreaker({ key: 'search', store: resilience.circuitStore('redis'), threshold: 3, cooldownMs: 10_000 })
+// A specific named store from config.stores — only reachable if you registered a provider:
+circuitBreaker({ key: 'search', store: resilience.circuitStore('mongo'), threshold: 3, cooldownMs: 10_000 })
 ```
 
 <Callout type="info">

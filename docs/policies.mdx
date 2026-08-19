@@ -37,7 +37,7 @@ Read it top-down: the timeout bounds the *entire* retry loop; the breaker wraps 
 ## `timeout`
 
 ```ts
-timeout(ms: number, opts?: { clock?: Clock }): Policy
+timeout(ms: number, opts?: { clock?: Clock; onEvent?: EventSink }): Policy
 ```
 
 Rejects with a **`TimeoutError`** if the operation hasn't settled within `ms`, and aborts the `PolicyContext.signal` so cooperating work can stop:
@@ -58,10 +58,12 @@ A timeout can only *cancel* work that listens to the `AbortSignal`. Always threa
 
 The `timeout` policy also forwards aborts from its `parent` context, so an outer timeout cancels an inner one.
 
+Pass `onEvent` to observe the deadline being hit — the sink receives a `timeout` event carrying `ms`. Like every policy, a `timeout` you build yourself is silent unless you wire it: see [which policies get the service's sink](/docs/resilience/integrations#which-policies-get-the-services-sink).
+
 ## `retry` and backoff
 
 ```ts
-retry(opts: { attempts: number; backoff?: Backoff; clock?: Clock }): Policy
+retry(opts: { attempts: number; backoff?: Backoff; clock?: Clock; onEvent?: EventSink }): Policy
 ```
 
 Re-runs the operation up to `attempts` times, waiting `backoff(attempt)` milliseconds between tries. After the last failure it rethrows the final error. `attempts: 3` means **three total tries**. The backoff defaults to `() => 0` (no wait), and each attempt sees its 0-based index on `ctx.attempt`. The inter-attempt delay honours the parent's `AbortSignal`, so a wrapping timeout cuts a pending backoff short.
@@ -77,6 +79,8 @@ retry({ attempts: 4, backoff: exponential(100) })
 retry({ attempts: 4, backoff: exponential(100, { jitter: true, factor: 3 }) })
 // 100ms·3^n, each randomized to 50–100% to spread out a thundering herd
 ```
+
+Pass `onEvent` to observe the re-attempts: the sink receives a `retry` event before each one, carrying `attempt` (the 1-based number of the *upcoming* try) and `error` (the failure that triggered it).
 
 There's no `constant()` helper — a fixed delay is just a function:
 
@@ -154,7 +158,7 @@ const sms = await failover({
 })
 ```
 
-Each failover step emits a `failover` event carrying `target` (stringified), `index`, and `error`. When you call it through [`ResilienceService.failover`](/docs/resilience/adonis), the service wires its own event sink for you.
+Each failover step emits a `failover` event carrying `target` (stringified), `index`, and `error` — but only to a sink you pass as `onEvent`. Calling the exported `failover()` directly, as above, emits **nowhere**: it takes no ambient sink, so nothing reaches diagnostics or your EventEmitter mirror. Call it through [`ResilienceService.failover`](/docs/resilience/adonis#the-service) to get the service's sink wired in for you, or pass `onEvent` yourself. `onFailover` fires either way.
 
 ## Recipe: per-attempt timeout
 
