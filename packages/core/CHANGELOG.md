@@ -1,5 +1,13 @@
 # @adonis-agora/resilience
 
+## 0.3.2
+
+### Patch Changes
+
+- [#16](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/16) [`ca0ec8f`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/ca0ec8f278c27a6fed2194e964764280796dd5fd) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Restore the `config/resilience.ts` stub, which was empty in the published package.
+
+  The commit that removed backticks from the config stub (they break the stub renderer) removed the entire file contents along with them, so `node ace add @adonis-agora/resilience` and `node ace configure @adonis-agora/resilience` wrote a zero-byte `config/resilience.ts` — no `defineConfig`, no default export — leaving the app with an unusable config file and nothing to adapt. The stub is restored, written without backticks so the original renderer bug stays fixed, and a test now fails if any published `.stub` is empty, missing, or reintroduces a backtick.
+
 ## 0.3.1
 
 ### Patch Changes
