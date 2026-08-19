@@ -33,17 +33,23 @@ import { defineConfig, stores } from '@adonis-agora/resilience'
 export default defineConfig({
   default: 'memory',
   stores: {
-    memory: stores.memory(),
-    lucid: stores.lucid({ connection: 'pg' }),
-    redis: stores.redis({ connection: 'main' }),
+    memory: stores.memory(),                     // no peer dependency
+    lucid: stores.lucid({ connection: 'pg' }),   // requires @adonisjs/lucid
+    redis: stores.redis({ connection: 'main' }), // requires @adonisjs/redis + ioredis
   },
 })
 ```
 
-Each `stores.*` call returns a lazy thunk — listing it costs nothing. The provider builds only the configured stores at boot, and the Lucid / Redis drivers **dynamically import their peer dependency** (`@adonisjs/lucid`, `@adonisjs/redis`) only when built. So you install just the driver you point `default` at; the others stay optional.
+`default` decides which store the breaker uses; the other entries stay reachable by name through [`circuitStore('lucid')`](/docs/resilience/adonis#the-service).
+
+<Callout type="warn" title="Every listed store is built at boot">
+Listing a store is not free. Each `stores.*` call returns a lazy thunk, but the provider builds **every** entry in the `stores` map when it first resolves the service — not just the one `default` points at — and each Lucid / Redis thunk imports its peer dependency as it is built. The config above therefore needs `@adonisjs/lucid`, `@adonisjs/redis` **and** `ioredis` installed, even though `default` is `memory`; without them the app fails to boot on the missing import.
+
+List only the stores whose peers you have installed. A peer you never list is never imported, which is what keeps those packages optional.
+</Callout>
 
 <Callout type="info">
-`@adonisjs/lucid`, `@adonisjs/redis` and `ioredis` are **optional peer dependencies** of `@adonis-agora/resilience`. Install the one your selected store needs — e.g. `npm i @adonisjs/redis ioredis` for `stores.redis()`.
+`@adonisjs/lucid`, `@adonisjs/redis` and `ioredis` are **optional peer dependencies** of `@adonis-agora/resilience`. Install the ones every store you list needs — e.g. `npm i @adonisjs/redis ioredis` for a `stores.redis()` entry.
 </Callout>
 
 ## In-memory (default)
