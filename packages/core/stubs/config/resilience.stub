@@ -1,0 +1,43 @@
+{{{
+  exports({ to: app.configPath('resilience.ts') })
+}}}
+import { defineConfig, stores } from '@adonis-agora/resilience'
+
+export default defineConfig({
+  /**
+   * Name of the store the circuit breaker uses, picked from the 'stores' map below.
+   * 'memory' keeps circuit state in-process; point this at a distributed store to
+   * share circuit state across instances.
+   */
+  default: 'memory',
+
+  /**
+   * Named circuit stores, built with the 'stores' factory. Every store listed here is
+   * built at boot, and the Lucid and Redis stores import their peer dependency
+   * ('@adonisjs/lucid', '@adonisjs/redis' + 'ioredis') as they are built — so only list
+   * a store whose peer you have installed, then point 'default' at it:
+   *
+   *   default: 'redis',
+   *   stores: {
+   *     memory: stores.memory(),
+   *     lucid: stores.lucid({ connection: 'pg' }),    // needs @adonisjs/lucid
+   *     redis: stores.redis({ connection: 'main' }),  // needs @adonisjs/redis + ioredis
+   *   },
+   */
+  stores: {
+    memory: stores.memory(),
+  },
+
+  /**
+   * Emit diagnostics events on the 'agora:resilience:*' channel. Default true.
+   */
+  // emit: true,
+
+  /**
+   * Named, reusable policies resolvable via resilience.execute('db', op). Add
+   * 'wrap', 'timeout', 'retry' and 'exponential' to the import above to use them.
+   */
+  // policies: {
+  //   db: () => wrap(timeout(2000), retry({ attempts: 3, backoff: exponential(100) })),
+  // },
+})
