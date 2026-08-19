@@ -30,6 +30,15 @@ const stubFiles = [
   ...findStubs(join(packageRoot, 'dist', 'stubs')),
 ];
 
+/**
+ * The stub body: everything outside the `{{{ … }}}` headers. The header is JS the renderer evaluates
+ * to compute the destination; the body is the template text it compiles into a JS template literal.
+ * Only the body is subject to the backtick restriction.
+ */
+function stubBody(contents: string): string {
+  return contents.replace(/\{\{\{[\s\S]*?\}\}\}/g, '');
+}
+
 const CONFIG_STUB = 'stubs/config/resilience.stub';
 
 describe('published stubs', () => {
@@ -42,12 +51,17 @@ describe('published stubs', () => {
     expect(bytes, `${file} is empty — configure would publish a blank file`).toBeGreaterThan(0);
   });
 
-  it.each(stubFiles)('%s has no backtick or template placeholder', (file) => {
-    // The stub renderer compiles the file body into a JS template literal, so a backtick or a
-    // `${` in the stub text is a syntax error at publish time.
-    const contents = readFileSync(join(packageRoot, file), 'utf8');
-    expect(contents).not.toContain('`');
-    expect(contents).not.toContain('${');
+  it.each(stubFiles)('%s has no backtick or template placeholder in its body', (file) => {
+    // The renderer compiles the stub BODY into a JS template literal, so a backtick or a `${` there
+    // is a syntax error at generate time — `node ace configure` throws and writes nothing.
+    //
+    // Scoped to the body on purpose. The `{{{ … }}}` header is JS the renderer EVALUATES rather than
+    // template text, so backticks are legitimate inside it, and a migration stub needs them to build
+    // its timestamped destination. Asserting over the whole file would forbid a construct the engine
+    // requires.
+    const body = stubBody(readFileSync(join(packageRoot, file), 'utf8'));
+    expect(body).not.toContain('`');
+    expect(body).not.toContain('${');
   });
 
   it('publishes a usable config/resilience.ts', () => {
