@@ -1,86 +1,70 @@
 /**
  * Type-checks every PUBLISHED stub the way a consumer app does: a scratch AdonisJS-shaped app that
- * depends on `@adonis-agora/resilience` and `@adonisjs/*` by NAME, with each stub rendered into the
- * file it actually generates, compiled by a real `tsc --noEmit` under NodeNext + strict.
+ * depends on `@adonis-agora/resilience` and `@adonisjs/*` by NAME, with each stub rendered by the
+ * REAL AdonisJS stub renderer into the file `node ace configure` actually writes, compiled by a real
+ * `tsc --noEmit` under NodeNext + strict.
  *
  * WHY THIS EXISTS. A `.stub` is a template that no tsconfig `include` reaches, so it is invisible to
  * every other gate in this repo. The package's own typecheck compiles `src/` against the library's
- * OWN types, which are trivially happy with themselves, and the sibling `stubs.spec.ts` asserts the
- * stub is non-empty and free of the backticks that break the renderer — but that operates on text,
- * so it cannot see a type error. That leaves a stub free to reference a shape the real types reject
- * while the whole suite stays green.
+ * OWN types, which are trivially happy with themselves, and `stubs.spec.ts` proves the stub exists,
+ * is not empty and carries the right anchors — but it operates on text, so it cannot see a type
+ * error.
  *
- * The failure mode is not hypothetical: `@adonis-agora/agent` shipped a migration whose `up()` did
- * not compile in a consumer app, because its structural `rawQuery` declared `bindings?: unknown[]` —
- * not assignable in either direction to Lucid's `RawQueryBindings`, so no per-connection client
- * satisfied it. Its whole suite stayed green. This package has its own version of that exposure:
- * `config/resilience.stub` calls `defineConfig({ default, stores })` and `stores.memory()`, so any
- * drift in those signatures silently breaks the file every consumer receives from `node ace add`.
+ * The gap is not hypothetical twice over. This package shipped its config stub at ZERO bytes through
+ * every gate. And `@adonis-agora/agent` shipped a stub that existed, had content, rendered fine, and
+ * still did not compile in a consumer app: its structural `rawQuery` declared `bindings?: unknown[]`,
+ * not assignable in either direction to Lucid's `RawQueryBindings`, so no real client satisfied it.
+ * "Not empty" is a step below "compiles for the person who receives it".
+ *
+ * WHY THE REAL RENDERER. Rendering with a hand-rolled regex checks a file the generator never
+ * writes, and the difference is exactly where bugs hide: Tempura compiles the stub BODY into a JS
+ * template literal, so a backtick there makes the real render throw while a regex renderer sails
+ * past it. `@adonis-agora/authz` published a `configure` that aborted without writing any file, in
+ * every released version, with all its gates green — because its harness rendered the stub itself.
+ * This drives the same pipeline `codemods.makeUsingStub` uses, so a stub that cannot be generated
+ * fails here.
  *
  * Resolution matters as much as compilation. The scratch app reaches the package through its
- * `exports` map, so what is checked is the PUBLISHED declarations a consumer installs — not `src/`,
- * which a check run inside this repo would otherwise pick up.
+ * `exports` map, so what is checked is the PUBLISHED `dist/**\/*.d.ts` a consumer installs — not
+ * `src/`, which a check run inside this repo would otherwise pick up. Dropping an export from the
+ * root barrel keeps the package's own typecheck green (its internal imports are relative) and fails
+ * HERE, with the diagnostic the consumer would get.
  *
  * Exits 0 on success; on failure prints tsc's diagnostics and exits non-zero.
  * Driven by `stub-typecheck.spec.ts`.
  */
 import { execFileSync } from 'node:child_process';
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AppFactory } from '@adonisjs/core/factories/app';
 
 const pkgRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const repoRoot = fileURLToPath(new URL('../../../../../', import.meta.url));
 
 /**
- * Every stub that generates TYPED TypeScript, with the path `configure` writes it to. A stub that
- * emits no type-bearing code has nothing to check; this one imports from the package and would break
- * a consumer's build if those signatures drifted.
+ * Read the stubs from `dist/stubs` rather than the source tree: that is where the published
+ * `stubsRoot` points, so it is the copy `node ace configure` reads in an installed app. A build step
+ * copies them there, and a stub that fails to be copied is a stub the consumer never receives.
  */
-const STUBS = [{ stub: 'config/resilience.stub', to: 'config/resilience.ts' }];
+const stubsRoot = join(pkgRoot, 'dist', 'stubs');
 
 /**
- * Render a stub the way the generator does. One template construct appears in this stub: the
- * `{{{ exports(...) }}}` destination header.
- *
- * Deliberately strict: anything left unrendered is a hard failure rather than a silent pass. A stub
- * that grows a template construct this renderer does not model would otherwise reach `tsc` with
- * literal braces in it — which reads as a compile error nobody can explain, or worse, gets "fixed"
- * by loosening the check until it stops looking at anything.
+ * Every stub `configure` publishes. This one carries the typed `defineConfig` call, so it would
+ * break a consumer's build if a published signature drifted.
  */
-function render({ stub }) {
-  const source = readFileSync(join(pkgRoot, 'stubs', stub), 'utf8');
-
-  let out = source.replace(/^\{\{#var[^\n]*\n/gm, '');
-  const withoutHeader = out.replace(/\{\{\{[\s\S]*?\}\}\}\n/, '');
-  if (withoutHeader === out) {
-    throw new Error(`no {{{ exports() }}} header in ${stub} — render assumption broken`);
-  }
-  out = withoutHeader;
-
-  const leftover = out.match(/\{\{.*?\}\}/);
-  if (leftover) throw new Error(`unrendered template syntax ${leftover[0]} left in ${stub}`);
-  return out;
-}
+const STUBS = ['config/resilience.stub'];
 
 /**
- * Mirror the package's `node_modules` into the scratch app, entry by entry, so the stub resolves
- * every peer it imports plus anything the published declarations transitively reference (the
+ * Mirror the package's `node_modules` into the scratch app, entry by entry, so the stubs resolve
+ * every peer they import plus anything the published declarations transitively reference (the
  * `@adonisjs/core` application types behind `StoreContext`, luxon via Lucid's types). Scoped
  * directories are recreated as real directories so `@adonis-agora/resilience` can be added alongside
  * without writing into the package's own tree.
  *
- * Mirroring wholesale rather than naming a fixed list keeps the harness from rotting: a new peer
- * dependency is picked up automatically instead of failing here as a confusing missing-types error.
+ * Mirroring wholesale rather than naming a fixed list keeps the harness from rotting: a new peer is
+ * picked up automatically instead of failing here as a confusing missing-types error.
  */
 function linkDependencies(appRoot) {
   const from = join(pkgRoot, 'node_modules');
@@ -99,7 +83,7 @@ function linkDependencies(appRoot) {
     symlinkSync(join(from, entry), join(to, entry));
   }
 
-  // The package under test, resolved BY NAME through its `exports` map → `dist/**/*.d.ts`.
+  // The package under test, resolved BY NAME through its `exports` map → dist/**/*.d.ts.
   mkdirSync(join(to, '@adonis-agora'), { recursive: true });
   symlinkSync(pkgRoot, join(to, '@adonis-agora/resilience'));
 }
@@ -116,10 +100,30 @@ try {
   );
   linkDependencies(appRoot);
 
-  for (const spec of STUBS) {
-    const target = join(appRoot, spec.to);
+  // Render through the real pipeline — the same one `codemods.makeUsingStub` drives.
+  // `attributes.to` is the destination the generator computes, so each file lands exactly where a
+  // consumer would find it.
+  const app = new AppFactory().create(new URL(`file://${appRoot}/`));
+  await app.init();
+  const stubs = await app.stubs.create();
+
+  for (const stubPath of STUBS) {
+    const prepared = await (await stubs.build(stubPath, { source: stubsRoot })).prepare({});
+
+    // Anything left unrendered would reach tsc as literal braces — a compile error nobody can
+    // explain, or worse, one that gets "fixed" by loosening this check until it looks at nothing.
+    const leftover = prepared.contents.match(/\{\{.*?\}\}/);
+    if (leftover) {
+      throw new Error(`unrendered template syntax ${leftover[0]} left in ${stubPath}`);
+    }
+
+    // `to` is absolute and already inside appRoot (the app factory was rooted there).
+    const target = prepared.attributes.to;
+    if (relative(appRoot, target).startsWith('..')) {
+      throw new Error(`${stubPath} renders outside the scratch app: ${target}`);
+    }
     mkdirSync(join(target, '..'), { recursive: true });
-    writeFileSync(target, render(spec));
+    writeFileSync(target, prepared.contents);
   }
 
   /**
@@ -166,4 +170,4 @@ try {
   rmSync(appRoot, { recursive: true, force: true });
 }
 
-console.log(`stub typecheck: OK (${STUBS.length} stubs)`);
+console.log(`stub typecheck: OK (${STUBS.length} stubs, rendered by the real AdonisJS renderer)`);
