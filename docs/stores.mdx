@@ -19,6 +19,46 @@ interface ResilienceStore {
 }
 ```
 
+Four small types make up that contract:
+
+```ts
+interface BreakerConfig {
+  threshold: number     // consecutive failures before the circuit opens
+  cooldownMs: number    // how long it stays open before probing
+  halfOpenMax?: number  // concurrent probes allowed in half-open (default 1)
+}
+
+interface Admission {
+  allow: boolean            // may this call run at all? false → the breaker throws BrokenCircuitError
+  probe: boolean            // is this call the half-open trial? hand it back to record()
+  status: CircuitStatus     // the circuit's state at the moment of the decision
+}
+
+interface CircuitSnapshot {
+  status: CircuitStatus     // 'closed' | 'open' | 'half-open'
+  failures: number          // consecutive failures counted so far
+  openUntil?: number        // epoch ms the cooldown expires; absent when closed
+}
+```
+
+`Admission` is the one to know, because it carries the distributed guarantee. `admit()` answers two questions at once: *may I run* (`allow`), and *am I the single call elected to test a recovering dependency* (`probe`). The breaker passes that `probe` flag straight back into `record()`, which is how the store can tell a trial run from ordinary traffic and decide whether to close the circuit or re-open it.
+
+```ts
+const admission = await store.admit('payments', { threshold: 5, cooldownMs: 30_000 })
+if (!admission.allow) throw new BrokenCircuitError('payments')   // fail fast, don't call the dependency
+
+try {
+  const result = await callPayments()
+  await store.record('payments', cfg, true, admission.probe)     // a successful probe closes the circuit
+  return result
+} catch (err) {
+  await store.record('payments', cfg, false, admission.probe)    // a failed probe re-opens it
+  throw err
+}
+```
+
+That is exactly what [`circuitBreaker`](/docs/resilience/policies#circuitbreaker) does for you — you only write this loop when implementing a [custom store](/docs/resilience/custom-store) or driving a store directly.
+
 <Callout type="info">
 `admit` and `record` must be **atomic** — the whole point of a distributed store is that, under concurrent load, exactly **one** instance gets the half-open probe. Every driver below enforces that against its real engine (a Lua script for Redis, a `SELECT … FOR UPDATE` transaction for SQL) and is verified by a [shared contract suite](/docs/resilience/testing#validating-a-store).
 </Callout>
@@ -33,17 +73,23 @@ import { defineConfig, stores } from '@adonis-agora/resilience'
 export default defineConfig({
   default: 'memory',
   stores: {
-    memory: stores.memory(),
-    lucid: stores.lucid({ connection: 'pg' }),
-    redis: stores.redis({ connection: 'main' }),
+    memory: stores.memory(),                     // no peer dependency
+    lucid: stores.lucid({ connection: 'pg' }),   // requires @adonisjs/lucid
+    redis: stores.redis({ connection: 'main' }), // requires @adonisjs/redis + ioredis
   },
 })
 ```
 
-Each `stores.*` call returns a lazy thunk — listing it costs nothing. The provider builds only the configured stores at boot, and the Lucid / Redis drivers **dynamically import their peer dependency** (`@adonisjs/lucid`, `@adonisjs/redis`) only when built. So you install just the driver you point `default` at; the others stay optional.
+`default` decides which store the breaker uses; the other entries stay reachable by name through [`circuitStore('lucid')`](/docs/resilience/adonis#the-service).
+
+<Callout type="warn" title="Every listed store is built at boot">
+Listing a store is not free. Each `stores.*` call returns a lazy thunk, but the provider builds **every** entry in the `stores` map when it first resolves the service — not just the one `default` points at — and each Lucid / Redis thunk imports its peer dependency as it is built. The config above therefore needs `@adonisjs/lucid`, `@adonisjs/redis` **and** `ioredis` installed, even though `default` is `memory`; without them the app fails to boot on the missing import.
+
+List only the stores whose peers you have installed. A peer you never list is never imported, which is what keeps those packages optional.
+</Callout>
 
 <Callout type="info">
-`@adonisjs/lucid`, `@adonisjs/redis` and `ioredis` are **optional peer dependencies** of `@adonis-agora/resilience`. Install the one your selected store needs — e.g. `npm i @adonisjs/redis ioredis` for `stores.redis()`.
+`@adonisjs/lucid`, `@adonisjs/redis` and `ioredis` are **optional peer dependencies** of `@adonis-agora/resilience`. Install the ones every store you list needs — e.g. `npm i @adonisjs/redis ioredis` for a `stores.redis()` entry.
 </Callout>
 
 ## In-memory (default)
@@ -94,6 +140,38 @@ interface LucidStoreConfig {
 }
 ```
 
+### Building it by hand
+
+`stores.lucid()` resolves the connection for you. When you need the store outside the config — in a test, in a script, or to hand to a `circuitBreaker` directly — construct it yourself with the exported factory (or the `LucidResilienceStore` class it wraps; they are equivalent):
+
+```ts
+import { lucidResilienceStore, LucidResilienceStore } from '@adonis-agora/resilience'
+import db from '@adonisjs/lucid/services/db'
+
+const store = lucidResilienceStore(db, { autoCreateSchema: false })
+
+// identical:
+const same = new LucidResilienceStore(db, { autoCreateSchema: false })
+
+// a specific connection rather than the default one:
+const pg = lucidResilienceStore(db.connection('pg'))
+```
+
+The first argument is the database itself, not a config object. It is typed as `LucidDatabase` — a structural slice of Lucid's `Database`, not the concrete class:
+
+```ts
+interface LucidQueryClient {
+  rawQuery(sql: string, bindings?: readonly unknown[]): Promise<unknown>
+}
+
+interface LucidDatabase extends LucidQueryClient {
+  transaction<T>(callback: (trx: LucidQueryClient) => Promise<T>): Promise<T>
+  connection?(name?: string): { dialect?: { name?: string } }  // used only to detect the dialect
+}
+```
+
+Because it is structural, the Lucid `Database` service and a `db.connection(name)` both satisfy it — and so does a stub with those two methods, which is what makes the store testable without a database. The optional `connection()` is only read to auto-detect the dialect; supply `useRowLocks` explicitly if it isn't there.
+
 </Tab>
 <Tab value="Redis">
 
@@ -127,12 +205,32 @@ interface RedisStoreConfig {
 
 So a circuit `payments` lives at `agora:resilience:circuit:payments` by default. The scripts are registered once per connection via `defineCommand`.
 
+### Building it by hand
+
+As with Lucid, the store is exported for use outside the config — pass any client, not a config object:
+
+```ts
+import { redisResilienceStore, RedisResilienceStore } from '@adonis-agora/resilience'
+import { Redis } from 'ioredis'
+
+const store = redisResilienceStore(new Redis(process.env.REDIS_URL), { ttlMs: 60_000 })
+
+// identical:
+const same = new RedisResilienceStore(new Redis(process.env.REDIS_URL), { ttlMs: 60_000 })
+```
+
+The client type is `RedisLike`, a three-method structural slice (`defineCommand`, `hmget`, `del`). A raw `ioredis` instance, the `ioConnection` behind an `@adonisjs/redis` connection, and an `ioredis-mock` all satisfy it — so nothing here requires `@adonisjs/redis`.
+
+<Callout type="warn" title="snapshot() does not advance the cooldown">
+`snapshot()` reads the circuit hash as it is stored, and only `admit()` performs state transitions. So a circuit whose cooldown has already elapsed still reports `status: 'open'` until the next `admit()` call moves it to half-open — compare `openUntil` against the current time if you are building a health endpoint or a dashboard on top of it. `admit()` itself is never wrong about this; only the read-only view lags.
+</Callout>
+
 </Tab>
 </Tabs>
 
 ## Lucid: migration over auto-create
 
-Auto-create is convenient, but in production you usually own the schema with a migration. Disable auto-create and run the DDL from a migration instead. The package exports `CIRCUITS_DDL` (and an `ensureResilienceSchema(db)` helper):
+Auto-create is convenient, but in production you usually own the schema with a migration. Disable auto-create and run the DDL from a migration instead. The package exports `CIRCUITS_DDL` for that, plus a helper that runs it:
 
 <Steps>
 <Step>
@@ -179,6 +277,36 @@ export default defineConfig({
 
 </Step>
 </Steps>
+
+### `ensureResilienceSchema`
+
+```ts
+ensureResilienceSchema(db: LucidQueryClient): Promise<void>
+```
+
+Runs `CIRCUITS_DDL` against the client you give it. It is idempotent (`CREATE TABLE IF NOT EXISTS`), so calling it repeatedly is harmless — handy in a test setup or a one-off script where a migration would be overkill:
+
+```ts
+import { ensureResilienceSchema } from '@adonis-agora/resilience'
+import db from '@adonisjs/lucid/services/db'
+
+await ensureResilienceSchema(db)
+```
+
+The parameter is `LucidQueryClient` — anything with a `rawQuery` method — so it is not limited to the `Database` service. A named connection works, and so does a transaction client, which lets you create the table inside a migration's transaction:
+
+```ts
+await ensureResilienceSchema(db.connection('pg'))
+
+await db.transaction(async (trx) => {
+  await ensureResilienceSchema(trx)   // a trx satisfies LucidQueryClient
+  await seedCircuits(trx)
+})
+```
+
+<Callout type="info">
+In production prefer the migration above: it gives you a `down()`, and it keeps the table under the same review and rollout process as the rest of your schema. `ensureResilienceSchema` and `autoCreateSchema: true` exist so that getting started needs no setup at all.
+</Callout>
 
 ## Bring your own engine
 

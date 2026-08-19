@@ -27,6 +27,27 @@ class PaymentClient {
 
 Calling `charge()` now executes `timeout( retry( circuitBreaker( body ) ) )`, exactly as `wrap(timeout(1_000), retry({ attempts: 3 }), circuitBreaker({ … }))` would.
 
+<Callout type="warn" title="A timeout here rejects, but does not cancel">
+The decorator calls your method with its original arguments, which means it has nowhere to hand you the `PolicyContext` — so **`ctx.signal` never reaches the method body**.
+
+For `retry` and `circuitBreaker` that changes nothing. For `timeout` it does: when the deadline fires, the promise `charge()` returned rejects with a `TimeoutError`, but the HTTP request inside `charge` keeps running to completion in the background. Nothing is aborted, and the connection is still held. The example above behaves exactly this way.
+
+Under load that matters — a slow dependency accumulates abandoned in-flight work that the timeout no longer bounds. When you need the timeout to genuinely cancel, take the signal as a parameter and use [`execute`](/docs/resilience/adonis#the-service) instead of the decorator:
+
+```ts
+class PaymentClient {
+  // the operation receives ctx, so `signal` reaches fetch and the request is aborted
+  charge(amount: number) {
+    return resilience.execute(policy, ({ signal }) =>
+      this.http.post('/charge', { amount }, { signal })
+    )
+  }
+}
+```
+
+Reach for the decorator when the policies are about *retrying* and *failing fast*, and for `execute` when a deadline has to reach through to the transport.
+</Callout>
+
 ## Composition order
 
 The argument order **mirrors [`wrap`](/docs/resilience/policies#wrap--compose-policies)**: the **first policy is the outermost** layer and the **last sits closest to the method body**. Read it top-down — the timeout bounds the *entire* retry loop; the breaker wraps each individual attempt.
@@ -58,8 +79,10 @@ Because a method decorator runs at class-definition time, there's no per-request
 
 ```ts
 import { circuitBreaker, lucidResilienceStore } from '@adonis-agora/resilience'
+import db from '@adonisjs/lucid/services/db'
 
-const store = lucidResilienceStore(/* … */)
+// the first argument is the database itself — see Stores for the accepted shapes
+const store = lucidResilienceStore(db)
 
 class InventoryClient {
   @withResilience(circuitBreaker({ key: 'inventory', store, threshold: 5, cooldownMs: 30_000 }))
@@ -67,7 +90,15 @@ class InventoryClient {
 }
 ```
 
-Share a single store instance across every breaker that should trip together — including the one wired into [`config/resilience.ts`](/docs/resilience/adonis).
+`lucidResilienceStore(db, opts?)` takes a Lucid database (or a named connection) and returns a ready store; `redisResilienceStore(client, opts?)` is its Redis twin. Both are covered in [Stores](/docs/resilience/stores#distributed-stores).
+
+Share a single store instance across every breaker that should trip together. To reuse the one your app already configured rather than building a second, take it from the service at module scope — `resilience.circuitStore()` for the default, or `resilience.circuitStore('redis')` for a named entry:
+
+```ts
+import resilience from '@adonis-agora/resilience/services/main'
+
+const store = resilience.circuitStore()
+```
 
 ## When to reach for `wrap` instead
 

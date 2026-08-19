@@ -33,7 +33,36 @@ Every type in the union is emitted by the core policies today:
 - the **timeout** policy emits `timeout` (carrying `ms`, the elapsed budget) when an operation exceeds its deadline;
 - the **retry** policy emits `retry` (carrying `attempt`, the 1-based number of the *upcoming* re-attempt, and `error`, the failure that triggered it) before each re-try.
 
-`timeout` and `retry` fire only when a sink is wired to the policy — either an explicit `onEvent`, or the ambient sink the `ResilienceService` injects on the `execute()` path — so they cost nothing when nobody is listening. Like the others, they flow through `diagnosticsSink()` as `agora:resilience:timeout` / `agora:resilience:retry`, and through the EventEmitter mirror as `resilience.timeout` / `resilience.retry`.
+`timeout` and `retry` fire only when a sink is wired to the policy, so they cost nothing when nobody is listening. Like the others, they flow through `diagnosticsSink()` as `agora:resilience:timeout` / `agora:resilience:retry`, and through the EventEmitter mirror as `resilience.timeout` / `resilience.retry`.
+
+### Which policies get the service's sink
+
+A policy captures its sink **when it is built**, not when it runs. There are exactly two ways it ends up with one:
+
+1. You pass `onEvent` yourself.
+2. It is built inside a **named policy factory** registered under `policies` in `config/resilience.ts`. The `ResilienceService` installs its own sink (diagnostics, plus your `eventEmitter` mirror) for the moment it calls that factory, so everything the factory constructs picks it up.
+
+The consequence is easy to trip over: a `Policy` object you built yourself and then handed to `execute()` was constructed outside that window, so it is **silent** — no diagnostics, no emitter mirror — no matter how it is run.
+
+```ts
+// config/resilience.ts — built inside the named factory, so it emits.
+policies: {
+  payments: () => wrap(timeout(2_000), retry({ attempts: 3 })),
+}
+
+// Emits: the service builds `payments` and injects its sink.
+await resilience.execute('payments', op)
+
+// Silent: this timeout was constructed at the call site, outside the service's window.
+await resilience.execute(timeout(1_000), op)
+
+// Emits again: pass the sink explicitly when you build the policy yourself.
+await resilience.execute(timeout(1_000, { onEvent: diagnosticsSink() }), op)
+```
+
+The same rule applies to a module-level `const policy = wrap(…)` you reuse across calls, and to policies attached with [`@withResilience`](/docs/resilience/decorator) — both are built outside any factory, so give them an explicit `onEvent` if you want them observable.
+
+`failover` follows the rule too, from the other side: calling the exported `failover()` function directly emits nowhere unless you pass `onEvent`, while [`ResilienceService.failover`](/docs/resilience/adonis) passes the service's sink for you.
 
 Pass `onEvent` to any policy, or let the `ResilienceService` wire the sinks for you. Combine several with `combineSinks` — a misbehaving sink can't break the others or the policy:
 
