@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 0.3.3
+
+### Patch Changes
+
+- [#21](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/21) [`0ec7729`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/0ec7729a3930db69f1f0139e8f657b7f3359cc0f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Ship TanStack Intent agent skills with the package: three SKILL.md guides (setup & named policies, the `@withResilience` decorator, custom stores + testing) under `skills/`, plus `_artifacts/` domain map, skill spec and skill tree, and a `Check Skills` CI workflow validating them.
+
 ## 0.3.2
 
 ### Patch Changes
