@@ -1,0 +1,85 @@
+# skill_tree.yaml — @adonis-agora/resilience
+# Flat structure (skills/<name>/SKILL.md), no router, every skill type `core`.
+# Minimal-library fast path: 3 skills < 5, no framework adapter packages.
+
+library:
+  name: '@adonis-agora/resilience'
+  version: '0.3.2'
+  repository: 'https://github.com/DavideCarvalho/adonis-resilience'
+  description: >-
+    Resilience policies for AdonisJS — timeout, retry with backoff, circuit
+    breaker, and ordered failover, with pluggable circuit stores.
+generated_from:
+  domain_map: '_artifacts/domain_map.yaml'
+  skill_spec: '_artifacts/skill_spec.md'
+generated_at: '2026-07-19'
+
+structure: flat
+router: false
+
+skills:
+  - name: resilience-setup-policies
+    slug: resilience-setup-policies
+    type: core
+    domain: app-wiring
+    package: '@adonis-agora/resilience'
+    path: packages/core/skills/resilience-setup-policies/SKILL.md
+    description: >-
+      Install/configure @adonis-agora/resilience, compose wrap(timeout, retry,
+      circuitBreaker) policies standalone or as named policies in
+      config/resilience.ts, and run them through the ResilienceService singleton —
+      execute by name, failover, circuit(key).snapshot()/reset(), circuitStore(name?).
+    requires: []
+    sources:
+      - 'DavideCarvalho/adonis-resilience:README.md'
+      - 'DavideCarvalho/adonis-resilience:docs/getting-started.mdx'
+      - 'DavideCarvalho/adonis-resilience:docs/policies.mdx'
+      - 'DavideCarvalho/adonis-resilience:docs/integrations.mdx'
+      - 'DavideCarvalho/adonis-resilience:packages/core/src/resilience_service.ts'
+    subsystems: []
+    references: []
+
+  - name: resilience-decorator
+    slug: resilience-decorator
+    type: core
+    domain: app-wiring
+    package: '@adonis-agora/resilience'
+    path: packages/core/skills/resilience-decorator/SKILL.md
+    description: >-
+      Attach timeout/retry/circuitBreaker policies to async class methods with the
+      @withResilience decorator — wrap-mirroring argument order, preserved
+      this/args/return type, explicit circuit store at class-definition time, and
+      when to prefer service.execute for real cancellation.
+    requires: []
+    sources:
+      - 'DavideCarvalho/adonis-resilience:docs/decorator.mdx'
+      - 'DavideCarvalho/adonis-resilience:docs/policies.mdx'
+      - 'DavideCarvalho/adonis-resilience:packages/core/src/decorator.ts'
+    subsystems: []
+    references: []
+
+  - name: resilience-custom-stores-testing
+    slug: resilience-custom-stores-testing
+    type: core
+    domain: stores
+    package: '@adonis-agora/resilience'
+    path: packages/core/skills/resilience-custom-stores-testing/SKILL.md
+    description: >-
+      Choose and build circuit-breaker stores — stores.memory/lucid/redis in
+      config/resilience.ts, CIRCUITS_DDL migrations, custom engines via
+      SqlResilienceStore + SqlDriver or computeAdmit/computeRecord or StoreProvider,
+      wiring through defineConfig({ store }) and circuitStore(name?) — and validate
+      them with runResilienceStoreContract from @adonis-agora/resilience/testing
+      plus FakeClock-driven time tests.
+    requires: []
+    sources:
+      - 'DavideCarvalho/adonis-resilience:docs/stores.mdx'
+      - 'DavideCarvalho/adonis-resilience:docs/custom-store.mdx'
+      - 'DavideCarvalho/adonis-resilience:docs/testing.mdx'
+      - 'DavideCarvalho/adonis-resilience:packages/core/src/breaker/store.ts'
+      - 'DavideCarvalho/adonis-resilience:packages/core/src/testing.ts'
+    subsystems:
+      - memory
+      - lucid
+      - redis
+    references: []
