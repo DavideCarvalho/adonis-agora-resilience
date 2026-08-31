@@ -39,7 +39,12 @@
       "default": "./dist/src/testing.js"
     }
   },
-  "files": ["dist/", "README.md", "CHANGELOG.md", "skills"],
+  "files": [
+    "dist/",
+    "README.md",
+    "CHANGELOG.md",
+    "skills"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json && pnpm run copy:stubs",
@@ -52,8 +57,8 @@
   "peerDependencies": {
     "@adonisjs/core": "^7.3.0",
     "@adonisjs/lucid": "^22.4.0",
-    "@adonisjs/redis": "^9.2.0",
-    "ioredis": "^5.0.0"
+    "@adonisjs/redis": "^9.2.0 || ^10.0.0",
+    "ioredis": "^5.0.0 || ^6.0.0"
   },
   "peerDependenciesMeta": {
     "@adonisjs/lucid": {
@@ -67,19 +72,19 @@
     }
   },
   "devDependencies": {
-    "@adonisjs/assembler": "8.4.0",
-    "@adonisjs/core": "7.4.0",
+    "@adonisjs/assembler": "8.5.0",
+    "@adonisjs/core": "7.5.0",
     "@adonisjs/lucid": "22.4.2",
-    "@adonisjs/redis": "9.2.0",
-    "@tanstack/intent": "^0.3.2",
-    "@types/node": "20.19.43",
+    "@adonisjs/redis": "10.0.1",
+    "@tanstack/intent": "^0.3.7",
+    "@types/node": "26.4.0",
     "@vinejs/vine": "4.4.0",
-    "better-sqlite3": "11.10.0",
-    "ioredis": "5.11.1",
+    "better-sqlite3": "13.0.3",
+    "ioredis": "6.0.0",
     "ioredis-mock": "8.13.1",
     "luxon": "3.7.2",
-    "typescript": "5.9.3",
-    "vitest": "3.2.7"
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
   },
   "engines": {
     "node": ">=20.6.0"

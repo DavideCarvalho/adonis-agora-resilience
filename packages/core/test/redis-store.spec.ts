@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type Clock, FakeClock } from '../src/index.js';
 import type { BreakerConfig } from '../src/index.js';
-import { RedisResilienceStore, redisResilienceStore } from '../src/index.js';
+import { type Clock, FakeClock, RedisResilienceStore, redisResilienceStore } from '../src/index.js';
 import type { RedisLike } from '../src/stores/redis.js';
 import { makeMockRedis } from './redis-helpers.js';
 

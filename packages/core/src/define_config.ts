@@ -23,7 +23,6 @@ export function defineConfig(config: ResilienceConfig): ResilienceConfig {
   return config;
 }
 
-export { stores };
 export type {
   LucidStoreConfig,
   MemoryStoreConfig,
@@ -37,3 +36,4 @@ export type {
   LucidResilienceStoreOptions,
 } from './stores/lucid.js';
 export type { RedisLike, RedisResilienceStoreOptions } from './stores/redis.js';
+export { stores };

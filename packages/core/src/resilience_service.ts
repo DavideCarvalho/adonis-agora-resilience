@@ -1,7 +1,7 @@
 import { InMemoryResilienceStore } from './breaker/in_memory_store.js';
 import type { ResilienceStore } from './breaker/store.js';
 import type { CircuitSnapshot } from './breaker/types.js';
-import { type EventSink, combineSinks, noopSink, withAmbientSink } from './events.js';
+import { combineSinks, type EventSink, noopSink, withAmbientSink } from './events.js';
 import { diagnosticsSink } from './integration/diagnostics.js';
 import { type EventEmitterLike, eventEmitterSink } from './integration/event_emitter.js';
 import { type FailoverOptions, failover } from './policies/failover.js';
