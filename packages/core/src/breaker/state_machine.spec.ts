@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   type CircuitState,
-  INITIAL_CIRCUIT_STATE,
   computeAdmit,
   computeRecord,
+  INITIAL_CIRCUIT_STATE,
 } from './state_machine';
 import type { BreakerConfig } from './types';
 

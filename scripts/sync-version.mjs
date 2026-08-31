@@ -12,7 +12,7 @@
  * Idempotent. Exits non-zero if any package was rewritten while in `--check`
  * mode so it can double as a CI guard against drift.
  */
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 

@@ -1,9 +1,9 @@
 import { type Clock, systemClock } from '../clock.js';
 import {
   type CircuitState,
-  INITIAL_CIRCUIT_STATE,
   computeAdmit,
   computeRecord,
+  INITIAL_CIRCUIT_STATE,
 } from './state_machine.js';
 import type { ResilienceStore } from './store.js';
 import type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from './types.js';
