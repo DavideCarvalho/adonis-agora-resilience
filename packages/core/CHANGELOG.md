@@ -1,5 +1,12 @@
 # @adonis-agora/resilience
 
+## 0.3.6
+
+### Patch Changes
+
+- [#30](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/30) [`ff87963`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/ff87963b2faf4062cde6ce28eb9a13d7525925c3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Widen the optional `@adonisjs/redis` peer to include `^11.0.0` — apps upgrading to redis 11 no
+  longer hit a peer conflict. No code change.
+
 ## 0.3.5
 
 ### Patch Changes
