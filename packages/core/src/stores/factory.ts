@@ -1,5 +1,8 @@
 import type { ApplicationService } from '@adonisjs/core/types';
-import { InMemoryResilienceStore } from '../breaker/in_memory_store.js';
+import {
+  InMemoryResilienceStore,
+  type InMemoryResilienceStoreOptions,
+} from '../breaker/in_memory_store.js';
 import type { ResilienceStore } from '../breaker/store.js';
 import type { Clock } from '../clock.js';
 import type { LucidResilienceStoreOptions } from './lucid.js';
@@ -23,8 +26,12 @@ export interface StoreContext {
  */
 export type StoreProvider = (ctx: StoreContext) => Promise<ResilienceStore>;
 
-/** Options for the built-in in-memory store. */
-export interface MemoryStoreConfig {
+/**
+ * Options for the built-in in-memory store. `maxEntries`/`ttlMs` are recommended whenever the
+ * circuit `key` folds in caller-influenced input (e.g. a tenant id) — see
+ * {@link InMemoryResilienceStoreOptions}.
+ */
+export interface MemoryStoreConfig extends InMemoryResilienceStoreOptions {
   /** Clock used for cooldown math. Defaults to the system clock. */
   clock?: Clock;
 }
@@ -64,8 +71,10 @@ export interface RedisStoreConfig extends RedisResilienceStoreOptions {
 export const stores = {
   /** In-process circuit store — single process, no peer dependency. */
   memory(config: MemoryStoreConfig = {}): StoreProvider {
-    return async () =>
-      config.clock ? new InMemoryResilienceStore(config.clock) : new InMemoryResilienceStore();
+    return async () => {
+      const { clock, ...opts } = config;
+      return new InMemoryResilienceStore(clock, opts);
+    };
   },
 
   /** SQL circuit store backed by `@adonisjs/lucid` (Postgres / MySQL / SQLite). */

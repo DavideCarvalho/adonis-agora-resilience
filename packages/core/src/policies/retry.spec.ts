@@ -54,4 +54,27 @@ describe('retry', () => {
     expect(b(1)).toBe(200);
     expect(b(2)).toBe(400);
   });
+
+  it('exponential() is uncapped by default, even past sensible sizes', () => {
+    const b = exponential(1000, { factor: 2 });
+    expect(b(10)).toBe(1000 * 2 ** 10);
+  });
+
+  it('exponential() caps the delay at `maxMs` once the raw value exceeds it', () => {
+    const b = exponential(1000, { factor: 2, maxMs: 5000 });
+    expect(b(0)).toBe(1000);
+    expect(b(1)).toBe(2000);
+    expect(b(2)).toBe(4000);
+    expect(b(3)).toBe(5000); // raw would be 8000
+    expect(b(10)).toBe(5000); // stays capped for much larger attempts
+  });
+
+  it('exponential() applies `maxMs` before jitter, so jittered output never exceeds the cap', () => {
+    const b = exponential(1000, { factor: 2, maxMs: 5000, jitter: true });
+    for (let i = 0; i < 50; i++) {
+      const delay = b(10);
+      expect(delay).toBeLessThanOrEqual(5000);
+      expect(delay).toBeGreaterThanOrEqual(2500); // 0.5x floor of the 5000 cap
+    }
+  });
 });

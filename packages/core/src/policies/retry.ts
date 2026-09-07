@@ -4,17 +4,32 @@ import { type Operation, type Policy, type PolicyContext, rootContext } from '..
 
 export type Backoff = (attempt: number) => number;
 
+/**
+ * Build an exponential backoff: `baseMs * factor ** attempt`, optionally capped at `maxMs` and
+ * randomized with equal jitter.
+ *
+ * `maxMs` is opt-in and defaults to `undefined` (uncapped) so an existing caller's behavior never
+ * changes silently on upgrade. We deliberately do **not** inject an implicit default cap (e.g.
+ * 30_000ms) here even though it would be a "safer" default: `exponential()` is a standalone
+ * exported helper, not exclusively wired through `retry()` — some callers legitimately want
+ * unbounded growth (e.g. a small `attempts` count where the last delay is already bounded by an
+ * outer `timeout()`), and quietly changing already-deployed delay math out from under them on a
+ * routine dependency bump is worse than leaving it uncapped. Callers who want a ceiling — which is
+ * the common case once `attempts` grows past a handful — should pass `maxMs` explicitly; the docs
+ * recommend 30_000 as a sane starting point.
+ */
 export function exponential(
   baseMs: number,
-  opts: { jitter?: boolean; factor?: number } = {},
+  opts: { jitter?: boolean; factor?: number; maxMs?: number } = {},
 ): Backoff {
   const factor = opts.factor ?? 2;
   return (attempt) => {
     const raw = baseMs * factor ** attempt;
-    if (!opts.jitter) return raw;
+    const capped = opts.maxMs !== undefined ? Math.min(raw, opts.maxMs) : raw;
+    if (!opts.jitter) return capped;
     // equal jitter: half the delay is a fixed floor, half is random spread — a 0.5×–1.0× band
     // (not full jitter, which would be a 0×–1.0× band starting from Math.random() * raw).
-    return Math.round(raw * (0.5 + Math.random() / 2));
+    return Math.round(capped * (0.5 + Math.random() / 2));
   };
 }
 
