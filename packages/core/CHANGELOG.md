@@ -1,5 +1,15 @@
 # @adonis-agora/resilience
 
+## 0.3.5
+
+### Patch Changes
+
+- [#25](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/25) [`1b330b4`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/1b330b4bebb8623696b21da69956b83a61fa26e5) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Add an optional `maxMs` to `exponential()` so a retry backoff can be capped before jitter is applied (`exponential(baseMs, { maxMs })`). Previously there was no way to bound the delay, so a large `attempts` count could grow into minutes-long waits between retries. `maxMs` is opt-in and off by default — existing callers see no behavior change — since silently imposing a default cap would change an already-deployed delay curve out from under them.
+
+- [#25](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/25) [`1b330b4`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/1b330b4bebb8623696b21da69956b83a61fa26e5) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `InMemoryResilienceStore` accepts optional `maxEntries` (LRU eviction) and `ttlMs` (lazy per-key expiry) options, and `stores.memory()` forwards them. Previously the store's internal map only shrank via an explicit `reset(key)`, so an app that composes a circuit `key` from caller-influenced input (e.g. the documented tenant-scoping pattern) had no way to bound its memory growth. Both default to unbounded, matching prior behavior.
+
+- [#25](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/25) [`1b330b4`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/1b330b4bebb8623696b21da69956b83a61fa26e5) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `diagnosticsSink()` now sanitizes an event's `error` field down to `{ name, message }` before forwarding it to `@adonis-agora/diagnostics`/Telescope, instead of forwarding the raw caught error as-is. `retry` and `failover` events carry the raw error from the underlying call — which, for an HTTP client wrapping a gateway/LLM response, can carry the response body/headers on a non-standard property (e.g. `err.response.data`) — so forwarding it unsanitized risked leaking secrets/PII into observability storage. Pass an opted-in `sanitizeError` to `diagnosticsSink({ sanitizeError })` for richer detail; `onEvent` callbacks registered directly on a policy still receive the raw, unsanitized error, since those run in-process.
+
 ## 0.3.4
 
 ### Patch Changes
