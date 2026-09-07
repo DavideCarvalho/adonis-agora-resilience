@@ -90,6 +90,26 @@ export default defineConfig({ emit: true }) // default — the service installs 
 
 The `ResilienceService` wires this automatically from your config; you only call `diagnosticsSink()` by hand when composing `onEvent` on a standalone policy. Set `emit: false` to opt out.
 
+<Callout type="warn" title="Errors are sanitized before they reach diagnostics">
+`retry`'s and `failover`'s events carry the *raw* caught error — useful in-process, since a `onEvent` callback you register yourself never leaves the app. But `diagnosticsSink()` is an export boundary: forwarding that raw error as-is could ship an upstream HTTP client's response body, headers, or auth token (attached to a non-standard property like `err.response.data`) straight into Telescope/diagnostics storage.
+
+So by default, `diagnosticsSink()` reduces any event's `error` field to `{ name, message }` before forwarding it — dropping every other own property. Opt into richer detail with `sanitizeError`, only after confirming the extra fields can't carry secrets/PII:
+
+```ts
+import { diagnosticsSink } from '@adonis-agora/resilience'
+
+diagnosticsSink({
+  sanitizeError: (err) => ({
+    name: (err as Error)?.name,
+    message: (err as Error)?.message,
+    code: (err as { code?: string })?.code, // safe to expose — no free-form body/headers
+  }),
+})
+```
+
+`defaultSanitizeError` is also exported, so a custom serializer can extend it instead of restating the base fields.
+</Callout>
+
 <Callout type="info">
 This is how circuit opens / failovers show up in [Telescope](/docs/telescope): resilience emits the events, diagnostics is the bus, and a Telescope watcher records them with `traceId` correlation. Resilience itself is not a dashboard — it only emits.
 </Callout>

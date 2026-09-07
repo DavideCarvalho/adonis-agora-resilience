@@ -107,6 +107,26 @@ export default defineConfig({
 
 `stores.memory({ clock })` accepts an optional `Clock` for tests. The underlying `InMemoryResilienceStore` is also exported if you want to construct one by hand.
 
+```ts
+new InMemoryResilienceStore(clock?: Clock, opts?: { maxEntries?: number; ttlMs?: number })
+```
+
+Both are unbounded by default, matching prior behavior. But if any part of a circuit `key` is caller-influenced — the [tenant-scoping pattern](/docs/resilience/integrations#tenant-aware-circuit-keys) is the common case — an attacker who can cause many distinct keys to be admitted/recorded grows this map without limit, since only an explicit `reset(key)` ever removes an entry. Set one or both to bound it:
+
+```ts title="config/resilience.ts"
+import { defineConfig, stores } from '@adonis-agora/resilience'
+
+export default defineConfig({
+  default: 'memory',
+  stores: {
+    memory: stores.memory({ maxEntries: 10_000, ttlMs: 30 * 60_000 }),
+  },
+})
+```
+
+- `maxEntries` evicts the least-recently-used key once the store holds more than this many — recommended whenever `key` is tenant/user-scoped.
+- `ttlMs` treats a key as expired — and recreates it fresh — once it hasn't been touched (`admit`/`record`/`snapshot`) for this long. It is checked lazily on the next access to that same key rather than via a background sweep, so pair it with `maxEntries` if you also need to bound memory held by keys nobody touches again.
+
 ## Distributed stores
 
 <Tabs items={['Lucid', 'Redis']}>

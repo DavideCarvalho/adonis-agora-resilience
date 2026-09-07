@@ -1,5 +1,6 @@
 // Re-export the configure hook from the package root so `node ace configure` finds it
 export { configure } from '../configure.js';
+export type { InMemoryResilienceStoreOptions } from './breaker/in_memory_store.js';
 export { InMemoryResilienceStore } from './breaker/in_memory_store.js';
 export type {
   SqlDriver,
@@ -21,7 +22,8 @@ export { BrokenCircuitError, TimeoutError } from './errors.js';
 export type { EventSink, ResilienceEvent, ResilienceEventType } from './events.js';
 export { combineSinks } from './events.js';
 export { tenantSuffix } from './integration/context.js';
-export { diagnosticsSink } from './integration/diagnostics.js';
+export type { DiagnosticsSinkOptions } from './integration/diagnostics.js';
+export { defaultSanitizeError, diagnosticsSink } from './integration/diagnostics.js';
 export type { EventEmitterLike } from './integration/event_emitter.js';
 export { eventEmitterSink, resilienceEventName } from './integration/event_emitter.js';
 export { type CircuitBreakerOptions, circuitBreaker } from './policies/circuit_breaker.js';

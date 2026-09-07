@@ -71,6 +71,10 @@ Re-runs the operation up to `attempts` times, waiting `backoff(attempt)` millise
 `Backoff` is just `(attempt: number) => number`. The package ships `exponential`:
 
 ```ts
+exponential(baseMs: number, opts?: { jitter?: boolean; factor?: number; maxMs?: number }): Backoff
+```
+
+```ts
 import { retry, exponential } from '@adonis-agora/resilience'
 
 retry({ attempts: 4, backoff: exponential(100) })
@@ -78,6 +82,15 @@ retry({ attempts: 4, backoff: exponential(100) })
 
 retry({ attempts: 4, backoff: exponential(100, { jitter: true, factor: 3 }) })
 // 100ms·3^n, each randomized to 50–100% to spread out a thundering herd
+
+retry({ attempts: 10, backoff: exponential(500, { maxMs: 30_000 }) })
+// 500ms, 1s, 2s, 4s, 8s, 16s, then capped at 30s for every remaining attempt
+```
+
+`maxMs` caps the computed delay *before* jitter is applied, so a jittered delay never exceeds the cap either. It is optional and **off by default** — `exponential()` does not impose an implicit ceiling (e.g. 30s) on your behalf, even though that would be the "safer" default for most callers. Two reasons: it's a standalone exported helper used outside `retry()` too, and quietly changing an already-deployed delay curve on a routine upgrade is worse than leaving it uncapped. In practice, once `attempts` climbs past a handful, always pass `maxMs` — an uncapped exponential curve reaches minutes-long waits within 8–10 attempts at the default `factor: 2`:
+
+```ts
+retry({ attempts: 12, backoff: exponential(200, { maxMs: 30_000, jitter: true }) })
 ```
 
 Pass `onEvent` to observe the re-attempts: the sink receives a `retry` event before each one, carrying `attempt` (the 1-based number of the *upcoming* try) and `error` (the failure that triggered it).
