@@ -8,6 +8,24 @@
     "url": "git+https://github.com/DavideCarvalho/adonis-agora-resilience.git",
     "directory": "packages/core"
   },
+  "homepage": "https://davidecarvalho.github.io/agora/docs/resilience",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/adonis-agora-resilience/issues"
+  },
+  "keywords": [
+    "adonisjs",
+    "adonis",
+    "resilience",
+    "circuit-breaker",
+    "retry",
+    "timeout",
+    "failover",
+    "lucid",
+    "redis",
+    "store",
+    "agora",
+    "tanstack-intent"
+  ],
   "author": "Davi Carvalho <davi@goflip.ai>",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -88,19 +106,5 @@
   },
   "engines": {
     "node": ">=20.6.0"
-  },
-  "keywords": [
-    "adonisjs",
-    "adonis",
-    "resilience",
-    "circuit-breaker",
-    "retry",
-    "timeout",
-    "failover",
-    "lucid",
-    "redis",
-    "store",
-    "agora",
-    "tanstack-intent"
-  ]
+  }
 }
