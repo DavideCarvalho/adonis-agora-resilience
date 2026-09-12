@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 0.3.7
+
+### Patch Changes
+
+- [`fd14fd6`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/fd14fd608e61c8a35d26d557d0379456c713f7f4) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Tighten the `exponential()` doc comment to the backoff contract it describes today
+
 ## 0.3.6
 
 ### Patch Changes
