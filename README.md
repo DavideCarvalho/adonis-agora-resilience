@@ -111,6 +111,11 @@ export default defineConfig({
 Bring your own engine by implementing `SqlDriver` over the exported
 `SqlResilienceStore`, or the four `ResilienceStore` methods directly.
 
+## Sponsors
+
+Every Agora library is MIT and stays free. The work is funded by partners and
+sponsors — [become one](https://davidecarvalho.github.io/agora/partners).
+
 ## License
 
 MIT © Davi Carvalho
