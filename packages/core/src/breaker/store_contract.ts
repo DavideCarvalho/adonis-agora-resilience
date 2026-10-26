@@ -39,6 +39,45 @@ export function runResilienceStoreContract(
       expect((await s.snapshot('k')).status).toBe('open');
     });
 
+    it('opens at the threshold under concurrent traffic, then admits a single probe', async () => {
+      const clock = new FakeClock();
+      const s = makeStore(clock);
+      await Promise.all(
+        Array.from({ length: 10 }, async () => {
+          const a = await s.admit('k', cfg);
+          if (a.allow) await s.record('k', cfg, false, a.probe);
+        }),
+      );
+      expect((await s.snapshot('k')).status).toBe('open');
+      expect((await s.admit('k', cfg)).allow).toBe(false);
+      clock.advance(1000);
+      const admissions = await Promise.all(Array.from({ length: 10 }, () => s.admit('k', cfg)));
+      expect(admissions.filter((a) => a.allow)).toHaveLength(1);
+      expect(admissions.filter((a) => a.probe)).toHaveLength(1);
+    });
+
+    it('a success clears accumulated failures and keeps a clean circuit closed', async () => {
+      const s = makeStore(new FakeClock());
+      expect(await s.record('k', cfg, true, false)).toBe('closed');
+      expect(await s.snapshot('k')).toEqual({ status: 'closed', failures: 0 });
+      await s.record('k', cfg, false, false);
+      await s.record('k', cfg, false, false);
+      expect(await s.record('k', cfg, true, false)).toBe('closed');
+      expect(await s.snapshot('k')).toEqual({ status: 'closed', failures: 0 });
+      for (let i = 0; i < 2; i++) await s.record('k', cfg, false, false);
+      expect((await s.admit('k', cfg)).allow).toBe(true);
+      await s.record('k', cfg, false, false);
+      expect((await s.admit('k', cfg)).allow).toBe(false);
+    });
+
+    it('a success while open closes the circuit', async () => {
+      const s = makeStore(new FakeClock());
+      for (let i = 0; i < 3; i++) await s.record('k', cfg, false, false);
+      expect(await s.record('k', cfg, true, false)).toBe('closed');
+      expect(await s.snapshot('k')).toEqual({ status: 'closed', failures: 0 });
+      expect((await s.admit('k', cfg)).allow).toBe(true);
+    });
+
     it('probe success closes fleet-wide; failure re-opens', async () => {
       const clock = new FakeClock();
       const s = makeStore(clock);

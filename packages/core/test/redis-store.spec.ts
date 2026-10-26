@@ -1,3 +1,4 @@
+import type { Redis } from 'ioredis';
 import { describe, expect, it, vi } from 'vitest';
 import type { BreakerConfig } from '../src/index.js';
 import { type Clock, FakeClock, RedisResilienceStore, redisResilienceStore } from '../src/index.js';
@@ -96,6 +97,33 @@ describe('RedisResilienceStore (ioredis-mock)', () => {
     await new Promise((r) => setTimeout(r, 120));
     // After the TTL lapses the hash is gone → reads back as the closed default.
     expect(await store.snapshot('k')).toEqual({ status: 'closed', failures: 0 });
+  });
+
+  it('does not create a hash for a key that has only ever succeeded', async () => {
+    const redis = makeMockRedis();
+    const store = redisResilienceStore(redis, { keyPrefix: 'p:' });
+    await store.admit('k', cfg);
+    expect(await store.record('k', cfg, true, false)).toBe('closed');
+    expect(await (redis as unknown as Redis).exists('p:k')).toBe(0);
+  });
+
+  it('leaves a clean closed circuit untouched on success, and resets a dirty one', async () => {
+    const redis = makeMockRedis() as unknown as Redis;
+    const store = redisResilienceStore(redis as unknown as RedisLike, {
+      keyPrefix: 'p:',
+      ttlMs: 60_000,
+    });
+    await store.record('k', cfg, false, false);
+    await store.record('k', cfg, true, false);
+    expect(await store.snapshot('k')).toEqual({ status: 'closed', failures: 0 });
+    await redis.pexpire('p:k', 5_000);
+    const before = await redis.hgetall('p:k');
+    for (let i = 0; i < 5; i++) {
+      await store.admit('k', cfg);
+      expect(await store.record('k', cfg, true, false)).toBe('closed');
+    }
+    expect(await redis.hgetall('p:k')).toEqual(before);
+    expect(await redis.pttl('p:k')).toBeLessThanOrEqual(5_000);
   });
 
   it('keeps state forever when no TTL is configured', async () => {

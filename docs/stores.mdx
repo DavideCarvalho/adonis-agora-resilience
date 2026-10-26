@@ -347,6 +347,7 @@ const driver: SqlDriver = {
     all: (sql, params) => tx.query(sql, params).then((r) => r.rows),
   })),
   read: (sql, params) => pool.query(sql, params).then((r) => r.rows),
+  run: (sql, params) => pool.query(sql, params).then(() => undefined),
   exec: (sql) => pool.query(sql).then(() => undefined),
 }
 

@@ -141,7 +141,7 @@ Source: `docs/stores.mdx § "Lucid: migration over auto-create"`,
 Pick the highest tier your engine allows; finish every tier with the contract
 suite (Pattern 4). Tier 1 — any SQL engine: implement a thin `SqlDriver`
 (`placeholders: 'numbered' | 'positional'`, optional `lockRows`, `transaction`,
-`read`, `exec`) and hand it to `SqlResilienceStore`, which owns the whole atomic
+`read`, optional `run`, `exec`) and hand it to `SqlResilienceStore`, which owns the whole atomic
 cycle and the statements:
 
 ```ts
@@ -158,6 +158,7 @@ const driver: SqlDriver = {
       }),
     ),
   read: (sql, params) => pool.query(sql, params).then((r) => r.rows),
+  run: (sql, params) => pool.query(sql, params).then(() => undefined),
   exec: (sql) => pool.query(sql).then(() => undefined),
 }
 

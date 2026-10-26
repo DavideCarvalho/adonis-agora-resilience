@@ -18,15 +18,15 @@ export class SystemClock implements Clock {
         reject(signal.reason ?? new Error('aborted'));
         return;
       }
-      const cancel = this.setTimer(ms, resolve);
-      signal?.addEventListener(
-        'abort',
-        () => {
-          cancel();
-          reject(signal.reason ?? new Error('aborted'));
-        },
-        { once: true },
-      );
+      const onAbort = () => {
+        cancel();
+        reject(signal?.reason ?? new Error('aborted'));
+      };
+      const cancel = this.setTimer(ms, () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      });
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 }
@@ -60,15 +60,15 @@ export class FakeClock implements Clock {
         reject(signal.reason ?? new Error('aborted'));
         return;
       }
-      const cancel = this.setTimer(ms, resolve);
-      signal?.addEventListener(
-        'abort',
-        () => {
-          cancel();
-          reject(signal.reason ?? new Error('aborted'));
-        },
-        { once: true },
-      );
+      const onAbort = () => {
+        cancel();
+        reject(signal?.reason ?? new Error('aborted'));
+      };
+      const cancel = this.setTimer(ms, () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      });
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
   /** Advance virtual time, firing any timers that come due (in order). */

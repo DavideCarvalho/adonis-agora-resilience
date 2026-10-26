@@ -1,5 +1,6 @@
+import { getEventListeners } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
-import { FakeClock } from './clock';
+import { FakeClock, SystemClock } from './clock';
 
 describe('FakeClock', () => {
   it('fires timers only after advancing past their delay', () => {
@@ -42,5 +43,23 @@ describe('FakeClock', () => {
     await expect(clock.delay(50, ac.signal)).rejects.toThrow('gone');
     // No timers should have been scheduled
     expect(clock.now()).toBe(0);
+  });
+});
+
+describe('delay() abort listener', () => {
+  it('FakeClock removes its abort listener once the delay elapses', async () => {
+    const clock = new FakeClock();
+    const ac = new AbortController();
+    const done = clock.delay(10, ac.signal);
+    expect(getEventListeners(ac.signal, 'abort')).toHaveLength(1);
+    clock.advance(10);
+    await done;
+    expect(getEventListeners(ac.signal, 'abort')).toHaveLength(0);
+  });
+
+  it('SystemClock removes its abort listener once the delay elapses', async () => {
+    const ac = new AbortController();
+    for (let i = 0; i < 5; i++) await new SystemClock().delay(0, ac.signal);
+    expect(getEventListeners(ac.signal, 'abort')).toHaveLength(0);
   });
 });
