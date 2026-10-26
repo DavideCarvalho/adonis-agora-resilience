@@ -151,6 +151,8 @@ export default defineConfig({
 
 By default the circuit table is created lazily on first use via the idempotent `CREATE TABLE IF NOT EXISTS` — no extra setup. The driver auto-detects the dialect: it uses `SELECT … FOR UPDATE` row locks on Postgres/MySQL and strips them on SQLite (which serialises transaction writers itself).
 
+The lock is only taken on transitions, failures and probe outcomes. On a healthy closed circuit `admit` is a plain `SELECT` and a success is one conditional `UPDATE` that matches no row when the circuit is already clean, so the row isn't rewritten and callers of the same key don't queue. A key that has only ever succeeded has no row in the table; a missing row reads as the closed default, so `snapshot()` reports the same state either way. Don't rely on the table to list every circuit key.
+
 ```ts
 interface LucidStoreConfig {
   connection?: string         // @adonisjs/lucid connection name — default connection if omitted
@@ -212,7 +214,7 @@ export default defineConfig({
 })
 ```
 
-`admit`/`record` each run as a single server-side Lua script — no schema, no migration. The Lua branching mirrors core's pure state machine, so a Redis-backed circuit behaves identically to the in-memory and SQL stores.
+`admit`/`record` each run as a single server-side Lua script — no schema, no migration. The Lua branching mirrors core's pure state machine, so a Redis-backed circuit behaves identically to the in-memory and SQL stores. A healthy closed circuit is never written: `admit` on a closed circuit only reads, and a success on a clean circuit skips the `HSET`, so a key that has never failed has no hash (it reads as closed).
 
 ```ts
 interface RedisStoreConfig {
@@ -222,6 +224,8 @@ interface RedisStoreConfig {
   ttlMs?: number      // optional sliding TTL — idle circuits expire back to closed; omit to keep forever
 }
 ```
+
+The TTL is refreshed on every write. A success on a clean circuit doesn't write, so it doesn't refresh the TTL either: a busy healthy circuit can expire, which is harmless, since an expired circuit reads back as the same closed default.
 
 So a circuit `payments` lives at `agora:resilience:circuit:payments` by default. The scripts are registered once per connection via `defineCommand`.
 

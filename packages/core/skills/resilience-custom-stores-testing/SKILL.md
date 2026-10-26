@@ -92,6 +92,10 @@ Redis runs `admit`/`record` as single server-side Lua scripts (atomic, no
 schema); Lucid uses `SELECT … FOR UPDATE` on Postgres/MySQL and plain
 transactions on SQLite. Both coordinate the half-open probe atomically, so
 exactly one instance probes a recovering dependency.
+Locking happens only on transitions, failures and probe outcomes: on a healthy
+closed circuit neither store writes (SQL `admit` is a plain read and a clean
+success a no-match conditional `UPDATE`; the Redis record script skips the
+`HSET`), so a key that has never failed has no row/hash and reads as closed.
 
 Source: `docs/stores.mdx § "Distributed stores"`.
 
@@ -165,6 +169,9 @@ const driver: SqlDriver = {
 const store = new SqlResilienceStore(driver)
 await store.ensureSchema() // runs CIRCUITS_DDL
 ```
+
+`run` is optional: without it the clean-success `UPDATE` runs in a one-statement
+`transaction`. Provide it so the healthy path never opens a transaction.
 
 Tier 2 — non-SQL engine with JS-level atomicity: drive the pure state machine
 yourself inside an atomic primitive. A new key loads as `INITIAL_CIRCUIT_STATE`;

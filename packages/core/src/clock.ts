@@ -1,6 +1,11 @@
 export interface Clock {
   now(): number;
   setTimer(ms: number, cb: () => void): () => void;
+  /**
+   * Resolves after `ms`, or rejects with `signal.reason` when `signal` aborts first.
+   * The abort listener is removed once the delay settles, so repeated delays on one
+   * long-lived signal (e.g. retry attempts) do not accumulate listeners.
+   */
   delay(ms: number, signal?: AbortSignal): Promise<void>;
 }
 

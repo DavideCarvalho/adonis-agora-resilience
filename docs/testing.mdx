@@ -18,6 +18,8 @@ interface Clock {
 }
 ```
 
+`delay` rejects with `signal.reason` when the signal aborts first, and removes its abort listener once it settles, so retry attempts on one long-lived signal don't pile up listeners. A custom `Clock` should do the same.
+
 `timeout`, `retry`, and the stores (`InMemoryResilienceStore`, the Lucid/Redis adapters, `SqlResilienceStore`) all take `{ clock }`. Pass a `FakeClock` and call `advance(ms)` to fire timers instantly — it fires due timers in scheduled order as you advance:
 
 ```ts
