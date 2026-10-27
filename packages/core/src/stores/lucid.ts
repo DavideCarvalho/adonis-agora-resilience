@@ -86,6 +86,9 @@ function lucidDriver(db: LucidDatabase, supportsForUpdate: boolean): SqlDriver {
     lockRows: supportsForUpdate,
     transaction: (body) => db.transaction((trx) => body(tx(trx))),
     read: async (sql, params) => toRows(await db.rawQuery(sql, params)),
+    run: async (sql, params) => {
+      await db.rawQuery(sql, params);
+    },
     exec: async (sql) => {
       await db.rawQuery(sql);
     },

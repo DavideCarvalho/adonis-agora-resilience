@@ -30,6 +30,7 @@ interface SqlStatements {
   selectForUpdate: string;
   selectPlain: string;
   updateState: string;
+  closeIfDirty: string;
   deleteRow: string;
 }
 
@@ -64,6 +65,12 @@ WHERE key = ${p(1)};`,
 UPDATE resilience_circuits
 SET status = ${p(1)}, failures = ${p(2)}, open_until = ${p(3)}, probes = ${p(4)}
 WHERE key = ${p(5)};`,
+    // Close after a success, matching no row when the circuit is already clean (or absent), so the
+    // steady closed state is never rewritten. `probes` is left untouched, as in computeRecord.
+    closeIfDirty: `
+UPDATE resilience_circuits
+SET status = 'closed', failures = 0, open_until = 0
+WHERE key = ${p(1)} AND (status <> 'closed' OR failures <> 0 OR open_until <> 0);`,
     // Clear a circuit back to its initial state (reset()). A missing row is a no-op.
     deleteRow: `
 DELETE FROM resilience_circuits
@@ -80,6 +87,15 @@ function rowToState(row: Record<string, unknown> | undefined): CircuitState {
     openUntil: Number(row.open_until),
     probes: Number(row.probes),
   };
+}
+
+function sameState(a: CircuitState, b: CircuitState): boolean {
+  return (
+    a.status === b.status &&
+    a.failures === b.failures &&
+    a.openUntil === b.openUntil &&
+    a.probes === b.probes
+  );
 }
 
 /** Parameterized statement runner, scoped to a single transaction. */
@@ -105,8 +121,13 @@ export interface SqlDriver {
   readonly lockRows?: boolean;
   /** Run `body` inside one atomic transaction (the breaker relies on `FOR UPDATE` locking within it). */
   transaction<R>(body: (tx: SqlTx) => Promise<R>): Promise<R>;
-  /** Non-transactional read, used by `snapshot()`. */
+  /** Non-transactional read, used by `snapshot()` and the lock-free `admit()` path. */
   read(sql: string, params: unknown[]): Promise<unknown[]>;
+  /**
+   * Non-transactional single-statement write. Optional: without it the statement runs in its own
+   * {@link SqlDriver.transaction}.
+   */
+  run?(sql: string, params: unknown[]): Promise<void>;
   /** Run a DDL statement (no parameters). */
   exec(sql: string): Promise<void>;
 }
@@ -136,27 +157,52 @@ export class SqlResilienceStore implements ResilienceStore {
     return this.driver.exec(CIRCUITS_DDL);
   }
 
-  admit(key: string, cfg: BreakerConfig): Promise<Admission> {
+  /**
+   * A closed circuit, an open one still cooling down, or a half-open one with every probe slot taken
+   * admits without changing state, so those are answered from a plain read. Only a transition
+   * (open → half-open, or granting a probe) takes the row lock and re-decides on the locked row,
+   * which keeps half-open probe admission exclusive.
+   */
+  async admit(key: string, cfg: BreakerConfig): Promise<Admission> {
+    const now = this.clock.now();
+    const rows = await this.driver.read(this.stmts.selectPlain, [key]);
+    const prev = rowToState(rows[0] as Record<string, unknown> | undefined);
+    const { state, admission } = computeAdmit(prev, cfg, now);
+    if (sameState(prev, state)) return admission;
     return this.driver.transaction(async (tx): Promise<Admission> => {
       await tx.run(this.stmts.insertInitial, [key]);
-      const rows = await tx.all(this.stmts.selectForUpdate, [key]);
-      const { state, admission } = computeAdmit(
-        rowToState(rows[0] as Record<string, unknown> | undefined),
+      const locked = await tx.all(this.stmts.selectForUpdate, [key]);
+      const next = computeAdmit(
+        rowToState(locked[0] as Record<string, unknown> | undefined),
         cfg,
-        this.clock.now(),
+        now,
       );
       await tx.run(this.stmts.updateState, [
-        state.status,
-        state.failures,
-        state.openUntil,
-        state.probes,
+        next.state.status,
+        next.state.failures,
+        next.state.openUntil,
+        next.state.probes,
         key,
       ]);
-      return admission;
+      return next.admission;
     });
   }
 
-  record(key: string, cfg: BreakerConfig, ok: boolean, probe: boolean): Promise<CircuitStatus> {
+  /**
+   * A non-probe success always lands on closed with no failures whatever the previous state, so it is
+   * a single conditional UPDATE that writes nothing when the circuit is already clean. Failures and
+   * probe outcomes depend on the current row and go through the locked load→compute→persist cycle.
+   */
+  async record(
+    key: string,
+    cfg: BreakerConfig,
+    ok: boolean,
+    probe: boolean,
+  ): Promise<CircuitStatus> {
+    if (ok && !probe) {
+      await this.runOne(this.stmts.closeIfDirty, [key]);
+      return 'closed';
+    }
     return this.driver.transaction(async (tx): Promise<CircuitStatus> => {
       await tx.run(this.stmts.insertInitial, [key]);
       const rows = await tx.all(this.stmts.selectForUpdate, [key]);
@@ -176,6 +222,11 @@ export class SqlResilienceStore implements ResilienceStore {
       ]);
       return status;
     });
+  }
+
+  private runOne(sql: string, params: unknown[]): Promise<void> {
+    if (this.driver.run) return this.driver.run(sql, params);
+    return this.driver.transaction((tx) => tx.run(sql, params));
   }
 
   async snapshot(key: string): Promise<CircuitSnapshot> {

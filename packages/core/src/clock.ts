@@ -1,6 +1,11 @@
 export interface Clock {
   now(): number;
   setTimer(ms: number, cb: () => void): () => void;
+  /**
+   * Resolves after `ms`, or rejects with `signal.reason` when `signal` aborts first.
+   * The abort listener is removed once the delay settles, so repeated delays on one
+   * long-lived signal (e.g. retry attempts) do not accumulate listeners.
+   */
   delay(ms: number, signal?: AbortSignal): Promise<void>;
 }
 
@@ -18,15 +23,15 @@ export class SystemClock implements Clock {
         reject(signal.reason ?? new Error('aborted'));
         return;
       }
-      const cancel = this.setTimer(ms, resolve);
-      signal?.addEventListener(
-        'abort',
-        () => {
-          cancel();
-          reject(signal.reason ?? new Error('aborted'));
-        },
-        { once: true },
-      );
+      const onAbort = () => {
+        cancel();
+        reject(signal?.reason ?? new Error('aborted'));
+      };
+      const cancel = this.setTimer(ms, () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      });
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 }
@@ -60,15 +65,15 @@ export class FakeClock implements Clock {
         reject(signal.reason ?? new Error('aborted'));
         return;
       }
-      const cancel = this.setTimer(ms, resolve);
-      signal?.addEventListener(
-        'abort',
-        () => {
-          cancel();
-          reject(signal.reason ?? new Error('aborted'));
-        },
-        { once: true },
-      );
+      const onAbort = () => {
+        cancel();
+        reject(signal?.reason ?? new Error('aborted'));
+      };
+      const cancel = this.setTimer(ms, () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      });
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
   /** Advance virtual time, firing any timers that come due (in order). */

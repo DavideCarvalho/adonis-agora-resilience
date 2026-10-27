@@ -59,8 +59,10 @@ const driver: SqlDriver = {
         all: (sql, params) => tx.query(sql, params).then((r) => r.rows),
       }),
     ),
-  // Non-transactional read, used by snapshot().
+  // Non-transactional read, used by snapshot() and by admit() when the circuit doesn't transition.
   read: (sql, params) => pool.query(sql, params).then((r) => r.rows),
+  // Optional non-transactional write. Without it the statement runs in a one-statement transaction.
+  run: (sql, params) => pool.query(sql, params).then(() => undefined),
   // A DDL statement (no params) — used by ensureSchema().
   exec: (sql) => pool.query(sql).then(() => undefined),
 }
@@ -84,6 +86,7 @@ interface SqlDriver {
   readonly lockRows?: boolean                                       // default true
   transaction<R>(body: (tx: SqlTx) => Promise<R>): Promise<R>
   read(sql: string, params: unknown[]): Promise<unknown[]>
+  run?(sql: string, params: unknown[]): Promise<void>               // optional
   exec(sql: string): Promise<void>
 }
 
@@ -99,6 +102,8 @@ The table is a single, five-column schema — `key`, `status`, `failures`, `open
 </Callout>
 
 Everything about the transitions — when a circuit opens, how the half-open probe is granted, the cooldown math — lives inside `SqlResilienceStore` (via the state machine below). Your driver is pure plumbing.
+
+Healthy traffic stays off the lock: `admit` answers from a plain `read` whenever the decision leaves the circuit unchanged (closed, open and cooling down, or half-open with every probe slot taken), and a non-probe success is a single conditional `UPDATE` that matches no row when the circuit is already clean. Only transitions, failures and probe outcomes take the locked transaction.
 
 ---
 
