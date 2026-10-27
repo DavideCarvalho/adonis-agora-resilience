@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 0.4.2
+
+### Patch Changes
+
+- [#116](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/116) [`43c4e22`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/43c4e22c04d0a60513719b1389201c800161901f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - fix(timeout): when the wrapped op throws synchronously, disarm the timeout timer and detach the parent-signal abort listener before rethrowing. Previously the timer stayed armed (emitting a spurious `timeout` event later) and the listener leaked onto the parent signal, accumulating on long-lived signals.
+
 ## 0.4.1
 
 ### Patch Changes
