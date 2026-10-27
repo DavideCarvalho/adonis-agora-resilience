@@ -31,10 +31,25 @@ export function timeout(ms: number, opts: { clock?: Clock; onEvent?: EventSink }
         );
       });
 
-      return Promise.race([op(ctx), aborted]).finally(() => {
+      const cleanup = () => {
         cancelTimer();
         parent.signal.removeEventListener('abort', onParentAbort);
-      });
+      };
+
+      // An op that throws synchronously (a non-async function) never reaches the `.finally`
+      // below, which would leave the timer armed — firing a spurious `timeout` event later — and
+      // the listener attached to a possibly long-lived parent signal. Clean up and rethrow as-is.
+      let pending: Promise<T>;
+      try {
+        pending = op(ctx);
+      } catch (err) {
+        cleanup();
+        // `aborted` may already be rejected (parent aborted before execute); nothing will race it.
+        aborted.catch(() => {});
+        throw err;
+      }
+
+      return Promise.race([pending, aborted]).finally(cleanup);
     },
   };
 }
