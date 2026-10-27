@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { getEventListeners } from 'node:events';
+import { describe, expect, it, vi } from 'vitest';
 import { FakeClock } from '../clock';
 import { TimeoutError } from '../errors';
 import { rootContext } from '../policy';
@@ -59,5 +60,25 @@ describe('timeout', () => {
     const p = timeout(1000, { clock });
     const op = () => new Promise<never>(() => {});
     await expect(p.execute(op, { signal: ac.signal, attempt: 0 })).rejects.toThrow('already gone');
+  });
+});
+
+describe('timeout cleanup on a synchronously-throwing op', () => {
+  it('rethrows synchronously, disarms the timer and detaches from the parent signal', () => {
+    const clock = new FakeClock();
+    const onEvent = vi.fn();
+    const ac = new AbortController();
+    const p = timeout(100, { clock, onEvent });
+    expect(() =>
+      p.execute(
+        (() => {
+          throw new Error('sync boom');
+        }) as never,
+        { signal: ac.signal, attempt: 0 },
+      ),
+    ).toThrow('sync boom');
+    expect(getEventListeners(ac.signal, 'abort')).toHaveLength(0);
+    clock.advance(1000);
+    expect(onEvent).not.toHaveBeenCalled();
   });
 });
