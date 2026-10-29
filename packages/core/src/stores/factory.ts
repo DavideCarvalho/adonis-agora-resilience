@@ -74,7 +74,8 @@ async function resolveService<T>(
       // Not bound (the peer provider is missing): fall through to the service module.
     }
   }
-  const fromService = await fromModule();
+  // The peer package itself may not be installed: that is the same "missing provider" case.
+  const fromService = await fromModule().catch(() => undefined);
   if (looksRight(fromService)) return fromService;
   throw new Error(
     `@adonis-agora/resilience: the store needs the '${binding}' service. Register its provider ` +

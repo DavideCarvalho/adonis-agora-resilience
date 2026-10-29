@@ -56,4 +56,14 @@ describe('store factories during boot', () => {
   it('says which provider is missing when neither the binding nor the service exists', async () => {
     await expect(stores.redis()({ app: appWith({}) })).rejects.toThrow(/needs the 'redis' service/);
   });
+
+  it('says which provider is missing when the peer package is not installed', async () => {
+    vi.doMock('@adonisjs/lucid/services/db', () => {
+      throw new Error("Cannot find package '@adonisjs/lucid'");
+    });
+    await expect(stores.lucid()({ app: appWith({}) })).rejects.toThrow(
+      /needs the 'lucid.db' service/,
+    );
+    vi.doUnmock('@adonisjs/lucid/services/db');
+  });
 });
