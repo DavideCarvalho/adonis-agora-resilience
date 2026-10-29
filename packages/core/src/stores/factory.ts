@@ -5,8 +5,8 @@ import {
 } from '../breaker/in_memory_store.js';
 import type { ResilienceStore } from '../breaker/store.js';
 import type { Clock } from '../clock.js';
-import type { LucidResilienceStoreOptions } from './lucid.js';
-import type { RedisResilienceStoreOptions } from './redis.js';
+import type { LucidDatabase, LucidResilienceStoreOptions } from './lucid.js';
+import type { RedisLike, RedisResilienceStoreOptions } from './redis.js';
 
 /**
  * Runtime context a {@link StoreProvider} receives when the resilience provider builds the
@@ -49,6 +49,40 @@ export interface RedisStoreConfig extends RedisResilienceStoreOptions {
 }
 
 /**
+ * Resolve a peer service (`redis`, `lucid.db`) for a store thunk the provider runs at boot.
+ *
+ * The container binding is registered in the peer provider's `register()`, so it exists while the
+ * resilience service is being built. The `services/main` / `services/db` default export does NOT:
+ * it is only assigned in `app.booted()`, so a `ResilienceService` resolved during boot (a class
+ * injected into something the app instantiates while booting) read `undefined` and failed with
+ * `Cannot read properties of undefined (reading 'connection')`. The service module stays as the
+ * fallback for a context without the binding.
+ */
+async function resolveService<T>(
+  ctx: StoreContext | undefined,
+  binding: string,
+  fromModule: () => Promise<unknown>,
+  method: string,
+): Promise<T> {
+  const looksRight = (value: unknown): value is T =>
+    typeof (value as Record<string, unknown> | undefined)?.[method] === 'function';
+  if (ctx?.app) {
+    try {
+      const bound = await ctx.app.container.make(binding as never);
+      if (looksRight(bound)) return bound;
+    } catch {
+      // Not bound (the peer provider is missing): fall through to the service module.
+    }
+  }
+  const fromService = await fromModule();
+  if (looksRight(fromService)) return fromService;
+  throw new Error(
+    `@adonis-agora/resilience: the store needs the '${binding}' service. Register its provider ` +
+      'in adonisrc.ts before the resilience provider.',
+  );
+}
+
+/**
  * The store factory namespace used in `config/resilience.ts`:
  *
  * ```ts
@@ -79,29 +113,34 @@ export const stores = {
 
   /** SQL circuit store backed by `@adonisjs/lucid` (Postgres / MySQL / SQLite). */
   lucid(config: LucidStoreConfig = {}): StoreProvider {
-    return async () => {
-      const db = (await import('@adonisjs/lucid/services/db')).default;
+    return async (ctx) => {
+      const db = await resolveService<{ connection(name: string): unknown }>(
+        ctx,
+        'lucid.db',
+        async () => (await import('@adonisjs/lucid/services/db')).default,
+        'connection',
+      );
       const { lucidResilienceStore } = await import('./lucid.js');
       const { connection, ...opts } = config;
-      const client = connection
-        ? (db.connection(connection) as unknown as import('./lucid.js').LucidDatabase)
-        : (db as unknown as import('./lucid.js').LucidDatabase);
+      const client = (connection ? db.connection(connection) : db) as unknown as LucidDatabase;
       return lucidResilienceStore(client, opts);
     };
   },
 
   /** Distributed circuit store backed by `@adonisjs/redis` / `ioredis`. */
   redis(config: RedisStoreConfig = {}): StoreProvider {
-    return async () => {
-      const redisService = (await import('@adonisjs/redis/services/main')).default;
+    return async (ctx) => {
+      const redisService = await resolveService<{ connection(name?: string): unknown }>(
+        ctx,
+        'redis',
+        async () => (await import('@adonisjs/redis/services/main')).default,
+        'connection',
+      );
       const { redisResilienceStore } = await import('./redis.js');
       const { connection, ...opts } = config;
-      const conn = connection
-        ? redisService.connection(connection as Parameters<typeof redisService.connection>[0])
-        : redisService.connection();
+      const conn = connection ? redisService.connection(connection) : redisService.connection();
       // The raw ioredis client behind the AdonisJS connection satisfies RedisLike.
-      const client = (conn as unknown as { ioConnection: import('./redis.js').RedisLike })
-        .ioConnection;
+      const client = (conn as { ioConnection: RedisLike }).ioConnection;
       return redisResilienceStore(client, opts);
     };
   },
