@@ -186,10 +186,10 @@ importers:
         version: 7.0.2
       unplugin-swc:
         specifier: 2.0.0
-        version: 2.0.0(@swc/core@1.16.22)(rolldown@1.2.16)(vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1))
+        version: 2.0.0(@swc/core@1.16.22)(rolldown@1.2.16)(vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1))
       vitest:
         specifier: 5.1.0
-        version: 5.1.0(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1))
+        version: 5.1.0(@types/node@26.6.5)(vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1))
 
   packages/core:
     devDependencies:
@@ -231,7 +231,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 5.1.0
-        version: 5.1.0(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1))
+        version: 5.1.0(@types/node@26.6.5)(vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1))
 
 packages:
 
@@ -258,8 +258,8 @@ packages:
     peerDependencies:
       typescript: ^5.0.0 || ^6.0.0
 
-  '@adonisjs/bodyparser@11.0.4':
-    resolution: {integrity: sha512-amqMPVFbzxkOoCMbkFs5sC+rTu7cER2rSv+1v8dsGKszolk5lnGuyNjkha1Lqksvw1qykIIbC1fXr37B9WJTdg==}
+  '@adonisjs/bodyparser@11.0.5':
+    resolution: {integrity: sha512-B/i4E/fw45YhUn0Y2yuY0Vf2robypbXgkpbHa1pUcAnWNY51akcfd1KskrK858DBlLezin7ImTvoff//W3m0lg==}
     engines: {node: '>=24.0.0'}
     peerDependencies:
       '@adonisjs/http-server': ^8.0.0-next.17 || ^8.0.0 || ^9.0.0
@@ -341,8 +341,8 @@ packages:
       youch:
         optional: true
 
-  '@adonisjs/http-transformers@2.3.1':
-    resolution: {integrity: sha512-N3gBcKyoPHDeVvVIedTzc+ARSUURwNGTPid/e3iLdM4v/myoSnXd76FL/GGzMmjfqqxegpjI2IEMibG7ylrKSQ==}
+  '@adonisjs/http-transformers@2.3.2':
+    resolution: {integrity: sha512-hb9nnJ1L7vtiv57SCq6hdhPF2tmqdqSRwRYZHDzoyfaqxmvknBrVKX9FOHs3rf/O+KD6i5EwyKJaPNL2s8kDkw==}
     engines: {node: '>=24.0.0'}
     peerDependencies:
       '@adonisjs/fold': ^11.0.0-next.2
@@ -701,8 +701,8 @@ packages:
   '@poppinss/middleware@3.2.7':
     resolution: {integrity: sha512-MZC0Z97ozSz+PpfyxUPUy/ImuthpqvBbY7qku7f4Q2maHz+2uXfchfO8OggXLS6zEJ078l+jpAHZ2rDIRdjeVg==}
 
-  '@poppinss/multiparty@3.0.0':
-    resolution: {integrity: sha512-z9jchUzsv7E+7sa4tWHb0+95Byx7w0ydlPGxg3nzyb7h3QlRdeW8/QkU9SexUY4lsT12do93AfNBAhSuOoVqjA==}
+  '@poppinss/multiparty@3.0.1':
+    resolution: {integrity: sha512-ZteZDToXiURvhzzSRnB6mSmKPkGe8nxT2hCatbqoL7cpetPS0qIXNybuqVV6nQ9psnY2ld2/bbuou9oXwAGFrg==}
 
   '@poppinss/object-builder@1.1.0':
     resolution: {integrity: sha512-FOrOq52l7u8goR5yncX14+k+Ewi5djnrt1JwXeS/FvnwAPOiveFhiczCDuvXdssAwamtrV2hp5Rw9v+n2T7hQg==}
@@ -1579,8 +1579,8 @@ packages:
     resolution: {integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==}
     engines: {node: '>= 0.10'}
 
-  is-core-module@2.17.0:
-    resolution: {integrity: sha512-J/vG0zBCbIKOQFfufSwyXdMrsohyJIUNkrnmo6WZGzoM7tr/lsbfW5b2BvisL6zsyMzK9UxV9L6c7AoFbyXHOA==}
+  is-core-module@2.18.0:
+    resolution: {integrity: sha512-qyax9fgaKOEC4qK8WZn7Q4IcoZC9RC1O1fFxRcRTq/oMMkWT/uXpqpXa12kzWR409zAt1drYN9N9BO26UmBCmw==}
     engines: {node: '>= 0.4'}
 
   is-docker@3.0.0:
@@ -1969,8 +1969,8 @@ packages:
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
 
-  resolve@1.22.13:
-    resolution: {integrity: sha512-Dj/cW9zBV2aRj6XzCxuGIs3ESZKv02jixne3q6jFZYZ3/Tg09gHHviSMDL4kObh9pqSahdRHEnDoaP2gn8YLhA==}
+  resolve@1.22.14:
+    resolution: {integrity: sha512-1ZjYvR9sbkiwC5+9QHetqW5HmA2pHRMaoupD01t2HlYnV/vydC2zPwLixhsMieSWVZt0JJRg5LVIk0Ow1D/TrA==}
     engines: {node: '>= 0.4'}
     hasBin: true
 
@@ -2001,8 +2001,8 @@ packages:
   safer-buffer@2.1.2:
     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
 
-  semver@7.8.5:
-    resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
+  semver@7.8.6:
+    resolution: {integrity: sha512-9lpSSU4Mly3mrtruwLs1eLK6+gzbzqeBFwRNjIjE+9LuDpWdYctrQlQ3ej1Ilgi7gknpsTRnPoLP8DpCHqHIJw==}
     engines: {node: '>=10'}
     hasBin: true
 
@@ -2091,8 +2091,8 @@ packages:
     resolution: {integrity: sha512-aulFJcD6YK8V1G7iRB5tigAP4TsHBZZrOV8pjV++zdUwmeV8uzbY7yn6h9MswN62adStNZFuCIx4haBnRuMDaw==}
     engines: {node: '>=18'}
 
-  strtok3@10.6.3:
-    resolution: {integrity: sha512-MD8mENgyXMr2mDaDfzP3RWYDSyYQxIIou7HhCiCJiBekrsoDtUG0id3vYnjDfY9ndOEbazFXe13Qw6u/1AB8ew==}
+  strtok3@10.7.0:
+    resolution: {integrity: sha512-iAqrCpp7UXD2FZiHWhLXqdJ6CmNeVzRkkHAyyhhKMVtbVm2KtPX3D/bJNonvtcyLTHS4rwqP2pz9fsjK1K4z0Q==}
     engines: {node: '>=18'}
 
   supports-color@10.2.2:
@@ -2115,16 +2115,16 @@ packages:
     resolution: {integrity: sha512-avMLDQpUI9I5XFrklECw1ZEUPJhqzcwSWsyyI8blhRLT+8N1jLJWLWWYQpB2q2xthq8xDvjZPISVh53T/+CLYQ==}
     engines: {node: '>=18'}
 
-  thread-stream@4.2.0:
-    resolution: {integrity: sha512-e2zZ96wSChazBsbENf/Pcm/4swHt2cEKQ92rhUjkL9GCKiTDJIaTBenjE/m9DXi0QBmTMDkFDdOomUy20A1tDQ==}
+  thread-stream@4.2.1:
+    resolution: {integrity: sha512-Stg6edJXC/6/xqGwSXwFokrUhChJ18amEjpKH89WrQQ0oVFDF+pUUcTpiwWhFUrE89Vf16FBOlwhaw+lescxMQ==}
     engines: {node: '>=20'}
 
   tildify@2.0.0:
     resolution: {integrity: sha512-Cc+OraorugtXNfs50hU9KS369rFXCfgGLpfCfvlc+Ud5u6VWmUQsOAa9HbTvheQdYnrdJqqv1e5oIqXppMYnSw==}
     engines: {node: '>=8'}
 
-  tinybench@6.2.2:
-    resolution: {integrity: sha512-nIZ2N2dFpjBsg2hgitKu7mA+FvsIJuGJOwysRngmVRRmWgR/UyPjwJj8c/fT/dhm8EkHnF5EOogRf+0Z2qrimA==}
+  tinybench@6.2.3:
+    resolution: {integrity: sha512-Al01C2JIBnO2CXCAPbpAl6sUiOZHeThGtHYNTa51JRw9PyWOCdr+9Ong05R4qg/Sk3+H645E8ov1h2c58ityNw==}
     engines: {node: '>=20.0.0'}
 
   tinyexec@1.3.1:
@@ -2151,8 +2151,8 @@ packages:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
 
-  token-types@6.1.2:
-    resolution: {integrity: sha512-dRXchy+C0IgK8WPC6xvCHFRIWYUbqqdEIKPaKo/AcTUNzwLTK6AH7RjdLWsEZcAN/TBdtfUw3PYEgPr5VPr6ww==}
+  token-types@6.2.0:
+    resolution: {integrity: sha512-s9euYHM//T3loJtbNUYdbAzsMlvKBeRS+XCLFy+UGosMQH19Hwjap5k19i4PPAEJJBsVIpMpVTxl4fIqCuNfUg==}
     engines: {node: '>=14.16'}
 
   ts-morph@28.0.0:
@@ -2236,8 +2236,8 @@ packages:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
 
-  vite@8.3.5:
-    resolution: {integrity: sha512-z1YpjieJ9g0ebTmQpLBv/oq9E3F9EIlOe+7LahW8SrE3LTiG3udBRUXQOlYXP9b+IC2q2phHeVxj9xGlw34OEQ==}
+  vite@8.3.6:
+    resolution: {integrity: sha512-UI7dK29NnS54Fk+mmo7o+jI6U8Fp7hDl+X5Q1k45WH+d4dSlbLVUETGQ+hfkNgvLQGyoElPj837nZyv4MBc0VA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
@@ -2414,12 +2414,12 @@ snapshots:
     transitivePeerDependencies:
       - babel-plugin-macros
 
-  '@adonisjs/bodyparser@11.0.4(@adonisjs/http-server@9.3.1(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/events@10.2.0(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1)(@adonisjs/logger@7.1.1)(@boringnode/encryption@1.0.1)(youch@4.1.1))(supports-color@10.2.2)':
+  '@adonisjs/bodyparser@11.0.5(@adonisjs/http-server@9.3.1(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/events@10.2.0(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1)(@adonisjs/logger@7.1.1)(@boringnode/encryption@1.0.1)(youch@4.1.1))(supports-color@10.2.2)':
     dependencies:
       '@adonisjs/http-server': 9.3.1(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/events@10.2.0(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1)(@adonisjs/logger@7.1.1)(@boringnode/encryption@1.0.1)(youch@4.1.1)
       '@poppinss/macroable': 1.1.2
       '@poppinss/middleware': 3.2.7
-      '@poppinss/multiparty': 3.0.0
+      '@poppinss/multiparty': 3.0.1
       '@poppinss/qs': 6.15.0
       '@poppinss/utils': 7.1.2
       file-type: 22.3.0(supports-color@10.2.2)
@@ -2437,7 +2437,7 @@ snapshots:
     dependencies:
       '@adonisjs/ace': 14.1.1(youch@4.1.1)
       '@adonisjs/application': 9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1)
-      '@adonisjs/bodyparser': 11.0.4(@adonisjs/http-server@9.3.1(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/events@10.2.0(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1)(@adonisjs/logger@7.1.1)(@boringnode/encryption@1.0.1)(youch@4.1.1))(supports-color@10.2.2)
+      '@adonisjs/bodyparser': 11.0.5(@adonisjs/http-server@9.3.1(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/events@10.2.0(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1)(@adonisjs/logger@7.1.1)(@boringnode/encryption@1.0.1)(youch@4.1.1))(supports-color@10.2.2)
       '@adonisjs/config': 6.1.0
       '@adonisjs/env': 7.1.0
       '@adonisjs/events': 10.2.0(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1)
@@ -2445,7 +2445,7 @@ snapshots:
       '@adonisjs/hash': 10.1.1
       '@adonisjs/health': 3.1.0
       '@adonisjs/http-server': 9.3.1(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/events@10.2.0(@adonisjs/application@9.1.1(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/config@6.1.0)(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1))(@adonisjs/fold@11.1.1)(@adonisjs/logger@7.1.1)(@boringnode/encryption@1.0.1)(youch@4.1.1)
-      '@adonisjs/http-transformers': 2.3.1(@adonisjs/fold@11.1.1)
+      '@adonisjs/http-transformers': 2.3.2(@adonisjs/fold@11.1.1)
       '@adonisjs/logger': 7.1.1
       '@adonisjs/repl': 5.0.0
       '@boringnode/encryption': 1.0.1
@@ -2525,7 +2525,7 @@ snapshots:
     optionalDependencies:
       youch: 4.1.1
 
-  '@adonisjs/http-transformers@2.3.1(@adonisjs/fold@11.1.1)':
+  '@adonisjs/http-transformers@2.3.2(@adonisjs/fold@11.1.1)':
     dependencies:
       '@adonisjs/fold': 11.1.1
       '@poppinss/exception': 1.2.3
@@ -2689,7 +2689,7 @@ snapshots:
       '@changesets/types': 7.0.0
       import-meta-resolve: 4.2.0
       jsonc-parser: 3.3.1
-      semver: 7.8.5
+      semver: 7.8.6
 
   '@changesets/assemble-release-plan@7.0.0':
     dependencies:
@@ -2697,7 +2697,7 @@ snapshots:
       '@changesets/get-dependents-graph': 3.0.0
       '@changesets/should-skip-package': 1.0.0
       '@changesets/types': 7.0.0
-      semver: 7.8.5
+      semver: 7.8.6
 
   '@changesets/changelog-git@1.0.0':
     dependencies:
@@ -2729,7 +2729,7 @@ snapshots:
       import-meta-resolve: 4.2.0
       launch-editor: 2.14.2
       package-manager-detector: 1.9.0
-      semver: 7.8.5
+      semver: 7.8.6
       tinyexec: 1.3.1
 
   '@changesets/config@4.0.1':
@@ -2750,7 +2750,7 @@ snapshots:
   '@changesets/get-dependents-graph@3.0.0':
     dependencies:
       '@changesets/types': 7.0.0
-      semver: 7.8.5
+      semver: 7.8.6
 
   '@changesets/get-github-info@1.0.1':
     dependencies:
@@ -2904,7 +2904,7 @@ snapshots:
 
   '@poppinss/middleware@3.2.7': {}
 
-  '@poppinss/multiparty@3.0.0':
+  '@poppinss/multiparty@3.0.1':
     dependencies:
       http-errors: 2.0.1
 
@@ -3068,8 +3068,8 @@ snapshots:
   '@tokenizer/inflate@0.6.0(supports-color@10.2.2)':
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
-      strtok3: 10.6.3
-      token-types: 6.1.2
+      strtok3: 10.7.0
+      token-types: 6.2.0
     transitivePeerDependencies:
       - supports-color
 
@@ -3197,14 +3197,14 @@ snapshots:
       normalize-url: 8.1.1
       validator: 13.15.35
 
-  '@vitest/mocker@5.1.0(vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1))':
+  '@vitest/mocker@5.1.0(vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       '@vitest/spy': 5.1.0
       estree-walker: 3.0.3
       magic-string: 1.4.5
     optionalDependencies:
-      vite: 8.3.5(@types/node@26.6.5)(yaml@2.9.1)
+      vite: 8.3.6(@types/node@26.6.5)(yaml@2.9.1)
 
   '@vitest/spy@5.1.0': {}
 
@@ -3437,8 +3437,8 @@ snapshots:
   file-type@22.3.0(supports-color@10.2.2):
     dependencies:
       '@tokenizer/inflate': 0.6.0(supports-color@10.2.2)
-      strtok3: 10.6.3
-      token-types: 6.1.2
+      strtok3: 10.7.0
+      token-types: 6.2.0
       uint8array-extras: 1.6.0
     transitivePeerDependencies:
       - supports-color
@@ -3525,7 +3525,7 @@ snapshots:
       fengari: 0.1.5
       fengari-interop: 0.1.4(fengari@0.1.5)
       ioredis: 6.0.0(supports-color@10.2.2)
-      semver: 7.8.5
+      semver: 7.8.6
 
   ioredis@6.0.0(supports-color@10.2.2):
     dependencies:
@@ -3540,7 +3540,7 @@ snapshots:
 
   ipaddr.js@1.9.1: {}
 
-  is-core-module@2.17.0:
+  is-core-module@2.18.0:
     dependencies:
       hasown: 2.0.4
 
@@ -3797,7 +3797,7 @@ snapshots:
       real-require: 1.0.0
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
-      thread-stream: 4.2.0
+      thread-stream: 4.2.1
 
   pluralize@8.0.0: {}
 
@@ -3841,7 +3841,7 @@ snapshots:
 
   rechoir@0.8.0:
     dependencies:
-      resolve: 1.22.13
+      resolve: 1.22.14
 
   redis-errors@1.2.0: {}
 
@@ -3849,10 +3849,10 @@ snapshots:
 
   resolve-pkg-maps@1.0.0: {}
 
-  resolve@1.22.13:
+  resolve@1.22.14:
     dependencies:
       es-errors: 1.3.0
-      is-core-module: 2.17.0
+      is-core-module: 2.18.0
       path-parse: 1.0.7
       supports-preserve-symlinks-flag: 1.0.0
 
@@ -3894,7 +3894,7 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
-  semver@7.8.5: {}
+  semver@7.8.6: {}
 
   setprototypeof@1.2.0: {}
 
@@ -3960,7 +3960,7 @@ snapshots:
 
   strip-final-newline@4.0.0: {}
 
-  strtok3@10.6.3:
+  strtok3@10.7.0:
     dependencies:
       '@tokenizer/token': 0.3.0
 
@@ -3974,13 +3974,13 @@ snapshots:
 
   terminal-size@4.0.1: {}
 
-  thread-stream@4.2.0:
+  thread-stream@4.2.1:
     dependencies:
       real-require: 1.0.0
 
   tildify@2.0.0: {}
 
-  tinybench@6.2.2: {}
+  tinybench@6.2.3: {}
 
   tinyexec@1.3.1: {}
 
@@ -3999,7 +3999,7 @@ snapshots:
 
   toidentifier@1.0.1: {}
 
-  token-types@6.1.2:
+  token-types@6.2.0:
     dependencies:
       '@borewit/text-codec': 0.2.3
       '@tokenizer/token': 0.3.0
@@ -4056,12 +4056,12 @@ snapshots:
 
   unpipe@1.0.0: {}
 
-  unplugin-swc@2.0.0(@swc/core@1.16.22)(rolldown@1.2.16)(vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1)):
+  unplugin-swc@2.0.0(@swc/core@1.16.22)(rolldown@1.2.16)(vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1)):
     dependencies:
       '@rollup/pluginutils': 5.5.1
       '@swc/core': 1.16.22
       load-tsconfig: 0.2.5
-      unplugin: 3.7.0(rolldown@1.2.16)(vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1))
+      unplugin: 3.7.0(rolldown@1.2.16)(vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1))
     transitivePeerDependencies:
       - '@farmfe/core'
       - '@rsbuild/core'
@@ -4074,7 +4074,7 @@ snapshots:
       - vite
       - webpack
 
-  unplugin@3.7.0(rolldown@1.2.16)(vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1)):
+  unplugin@3.7.0(rolldown@1.2.16)(vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1)):
     dependencies:
       '@jridgewell/remapping': 2.3.5
       '@rolldown/pluginutils': 1.0.1
@@ -4082,13 +4082,13 @@ snapshots:
       webpack-virtual-modules: 0.6.2
     optionalDependencies:
       rolldown: 1.2.16
-      vite: 8.3.5(@types/node@26.6.5)(yaml@2.9.1)
+      vite: 8.3.6(@types/node@26.6.5)(yaml@2.9.1)
 
   validator@13.15.35: {}
 
   vary@1.1.2: {}
 
-  vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1):
+  vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -4100,10 +4100,10 @@ snapshots:
       fsevents: 2.3.3
       yaml: 2.9.1
 
-  vitest@5.1.0(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1)):
+  vitest@5.1.0(@types/node@26.6.5)(vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.1.0(vite@8.3.5(@types/node@26.6.5)(yaml@2.9.1))
+      '@vitest/mocker': 5.1.0(vite@8.3.6(@types/node@26.6.5)(yaml@2.9.1))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
@@ -4111,10 +4111,10 @@ snapshots:
       obug: 3.0.0
       picomatch: 4.0.7
       std-env: 4.3.0
-      tinybench: 6.2.2
+      tinybench: 6.2.3
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
-      vite: 8.3.5(@types/node@26.6.5)(yaml@2.9.1)
+      vite: 8.3.6(@types/node@26.6.5)(yaml@2.9.1)
       why-is-node-running: 3.2.1
     optionalDependencies:
       '@types/node': 26.6.5
