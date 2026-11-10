@@ -69,6 +69,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm check:package
 
       # A Renovate patch/minor bump automerges on its own and brings no changeset with it, so
       # the new dependency would reach npm only with the next hand-written changeset. This writes

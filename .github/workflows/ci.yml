@@ -33,6 +33,8 @@ jobs:
 
       - run: pnpm check:package
 
+  # Lint, typecheck, build and package checks run once on the pinned version above; the test
+  # suite runs on every Node line we support (24 only for 1.0; add a line to the matrix to fan out).
   test:
     runs-on: ubuntu-latest
     strategy:
