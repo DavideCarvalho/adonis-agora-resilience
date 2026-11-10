@@ -7,15 +7,9 @@ import { makeMockRedis } from './redis-helpers.js';
 /**
  * A `ResilienceService` resolved while the app is still booting (a class injected into something the
  * app instantiates during boot, e.g. a workflow step discovered by `@adonis-agora/durable`) builds its
- * stores before `app.booted()` runs. At that point `@adonisjs/redis/services/main` and
- * `@adonisjs/lucid/services/db` still export `undefined`: the store thunks read them and failed with
- * "Cannot read properties of undefined (reading 'connection')". The container bindings already exist,
- * so the thunks resolve those first.
+ * stores before `app.booted()` runs, so the store thunks take their connections from the container
+ * bindings, which already exist at that point.
  */
-
-// The service modules as they are before `app.booted()`: their default export is still undefined.
-vi.mock('@adonisjs/redis/services/main', () => ({ default: undefined }));
-vi.mock('@adonisjs/lucid/services/db', () => ({ default: undefined }));
 
 function appWith(bindings: Record<string, unknown>): ApplicationService {
   return {
@@ -53,17 +47,10 @@ describe('store factories during boot', () => {
     expect(connection).toHaveBeenCalledWith('pg');
   });
 
-  it('says which provider is missing when neither the binding nor the service exists', async () => {
+  it('says which provider is missing when the binding does not exist', async () => {
     await expect(stores.redis()({ app: appWith({}) })).rejects.toThrow(/needs the 'redis' service/);
-  });
-
-  it('says which provider is missing when the peer package is not installed', async () => {
-    vi.doMock('@adonisjs/lucid/services/db', () => {
-      throw new Error("Cannot find package '@adonisjs/lucid'");
-    });
     await expect(stores.lucid()({ app: appWith({}) })).rejects.toThrow(
       /needs the 'lucid.db' service/,
     );
-    vi.doUnmock('@adonisjs/lucid/services/db');
   });
 });

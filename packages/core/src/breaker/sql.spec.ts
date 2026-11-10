@@ -23,14 +23,8 @@ class FakeSqlDriver implements SqlDriver {
   roundTrips = 0;
   rowWrites = 0;
   private lock: Promise<void> = Promise.resolve();
-  run?: (sql: string, params: unknown[]) => Promise<void>;
-
-  constructor(withRun = true) {
-    if (withRun) {
-      this.run = async (sql, params) => {
-        await this.execute(sql, params);
-      };
-    }
+  async run(sql: string, params: unknown[]): Promise<void> {
+    await this.execute(sql, params);
   }
 
   async transaction<R>(body: (tx: SqlTx) => Promise<R>): Promise<R> {
@@ -116,11 +110,6 @@ runResilienceStoreContract(
   (clock) => new SqlResilienceStore(new FakeSqlDriver(), { clock }),
 );
 
-runResilienceStoreContract(
-  'SqlResilienceStore (driver without run)',
-  (clock) => new SqlResilienceStore(new FakeSqlDriver(false), { clock }),
-);
-
 describe('SqlResilienceStore round trips', () => {
   it('a successful call on a closed circuit takes no transaction and writes nothing', async () => {
     const driver = new FakeSqlDriver();
@@ -132,16 +121,6 @@ describe('SqlResilienceStore round trips', () => {
     }
     expect(driver.transactions).toBe(0);
     expect(driver.roundTrips).toBe(10);
-    expect(driver.rowWrites).toBe(0);
-  });
-
-  it('falls back to a one-statement transaction when the driver has no run()', async () => {
-    const driver = new FakeSqlDriver(false);
-    const store = new SqlResilienceStore(driver, { clock: new FakeClock() });
-    await store.admit('k', cfg);
-    await store.record('k', cfg, true, false);
-    expect(driver.transactions).toBe(1);
-    expect(driver.roundTrips).toBe(2);
     expect(driver.rowWrites).toBe(0);
   });
 

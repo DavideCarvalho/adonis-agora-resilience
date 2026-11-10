@@ -123,11 +123,8 @@ export interface SqlDriver {
   transaction<R>(body: (tx: SqlTx) => Promise<R>): Promise<R>;
   /** Non-transactional read, used by `snapshot()` and the lock-free `admit()` path. */
   read(sql: string, params: unknown[]): Promise<unknown[]>;
-  /**
-   * Non-transactional single-statement write. Optional: without it the statement runs in its own
-   * {@link SqlDriver.transaction}.
-   */
-  run?(sql: string, params: unknown[]): Promise<void>;
+  /** Non-transactional single-statement write, used by the lock-free clean-success path. */
+  run(sql: string, params: unknown[]): Promise<void>;
   /** Run a DDL statement (no parameters). */
   exec(sql: string): Promise<void>;
 }
@@ -200,7 +197,7 @@ export class SqlResilienceStore implements ResilienceStore {
     probe: boolean,
   ): Promise<CircuitStatus> {
     if (ok && !probe) {
-      await this.runOne(this.stmts.closeIfDirty, [key]);
+      await this.driver.run(this.stmts.closeIfDirty, [key]);
       return 'closed';
     }
     return this.driver.transaction(async (tx): Promise<CircuitStatus> => {
@@ -222,11 +219,6 @@ export class SqlResilienceStore implements ResilienceStore {
       ]);
       return status;
     });
-  }
-
-  private runOne(sql: string, params: unknown[]): Promise<void> {
-    if (this.driver.run) return this.driver.run(sql, params);
-    return this.driver.transaction((tx) => tx.run(sql, params));
   }
 
   async snapshot(key: string): Promise<CircuitSnapshot> {
