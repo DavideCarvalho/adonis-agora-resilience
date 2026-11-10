@@ -2,7 +2,6 @@ import { getEventListeners } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { FakeClock } from '../clock';
 import { TimeoutError } from '../errors';
-import { rootContext } from '../policy';
 import { timeout } from './timeout';
 
 describe('timeout', () => {
