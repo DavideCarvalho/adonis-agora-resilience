@@ -1,0 +1,61 @@
+---
+title: Migrating to 1.0
+description: Move an app from @adonis-agora/resilience 0.x to 1.0 — what to check in your environment and dependencies.
+icon: ArrowUpCircle
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+1.0 keeps the 0.4 API as it is: `timeout`, `retry`, `circuitBreaker`, `failover`, `wrap`, `withResilience`, `defineConfig`, `stores`, the `ResilienceService` and every store work exactly as before. Upgrading is a dependency bump plus a check of the requirements below.
+
+<Callout type="info">
+  The first 1.0 builds ship under the `rc` tag. Install them with `pnpm add @adonis-agora/resilience@rc`.
+</Callout>
+
+## Requirements
+
+- **Node.js 24+**. The package declares `"engines": { "node": ">=24" }`.
+- **AdonisJS 7** (`@adonisjs/core ^7.3.0`).
+- Optional peers, only for the store you use: `@adonisjs/lucid ^22.4.0`, `@adonisjs/redis ^9.2.0 || ^10.0.0 || ^11.0.0`, or `ioredis ^5.0.0 || ^6.0.0`.
+
+## Upgrade
+
+Before:
+
+```json title="package.json"
+{
+  "dependencies": {
+    "@adonis-agora/resilience": "^0.4.3"
+  }
+}
+```
+
+After:
+
+```json title="package.json"
+{
+  "dependencies": {
+    "@adonis-agora/resilience": "^1.0.0"
+  }
+}
+```
+
+Your `config/resilience.ts`, the provider registered in `adonisrc.ts` and the circuit table used by the Lucid store stay as they are. Circuits already stored in Redis or SQL keep their state across the upgrade.
+
+```ts title="app/services/payment_gateway_service.ts"
+import resilience from '@adonis-agora/resilience/services/main'
+import type Order from '#models/order'
+
+export default class PaymentGatewayService {
+  // Same call in 0.x and 1.0
+  async charge(order: Order) {
+    return resilience.execute('payments', ({ signal }) =>
+      fetch('https://api.stripe.com/v1/charges', {
+        method: 'POST',
+        body: JSON.stringify({ amount: order.total, currency: 'usd' }),
+        signal,
+      }).then((res) => res.json())
+    )
+  }
+}
+```
