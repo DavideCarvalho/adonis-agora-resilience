@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { FakeClock } from '../clock';
-import { TimeoutError } from '../errors';
 import { retry } from './retry';
 import { timeout } from './timeout';
 import { wrap } from './wrap';
