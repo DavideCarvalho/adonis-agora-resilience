@@ -14,7 +14,7 @@ There are three tiers of reuse, ordered from **most** code reused to **least**. 
 
 | Tier | You bring | You reuse | When |
 |------|-----------|-----------|------|
-| **1** | a `SqlDriver` (dialect + `transaction`/`read`/`exec`) | `SqlResilienceStore` — the whole atomic cycle + SQL | any relational engine (a non-Lucid ORM, a raw pool) |
+| **1** | a `SqlDriver` (dialect + `transaction`/`read`/`run`/`exec`) | `SqlResilienceStore` — the whole atomic cycle + SQL | any relational engine (a non-Lucid ORM, a raw pool) |
 | **2** | the atomic load→compute→persist loop | `computeAdmit` / `computeRecord` — the pure state machine | a JS-driven engine that isn't SQL (a document store, a KV with transactions) |
 | **3** | everything, incl. the branching | only the `ResilienceStore` shape + the contract suite | an engine where the whole cycle must run server-side (like Redis Lua) |
 
@@ -41,7 +41,7 @@ The one hard rule: **`admit` and `record` must be atomic** against your engine. 
 
 ## Tier 1 — reuse the SQL base with a `SqlDriver`
 
-If your engine speaks SQL, you should almost never write breaker logic. `SqlResilienceStore` already owns the atomic cycle, the dialect-aware statements, and the DDL; an adapter is reduced to a tiny **`SqlDriver`** that says which placeholder style the dialect uses and how to run a transaction, a plain read, and a DDL statement. This is exactly how the built-in Lucid store is built.
+If your engine speaks SQL, you should almost never write breaker logic. `SqlResilienceStore` already owns the atomic cycle, the dialect-aware statements, and the DDL; an adapter is reduced to a tiny **`SqlDriver`** that says which placeholder style the dialect uses and how to run a transaction, a plain read, a plain write, and a DDL statement. This is exactly how the built-in Lucid store is built.
 
 ```ts
 import { SqlResilienceStore, type SqlDriver } from '@adonis-agora/resilience'
@@ -61,7 +61,7 @@ const driver: SqlDriver = {
     ),
   // Non-transactional read, used by snapshot() and by admit() when the circuit doesn't transition.
   read: (sql, params) => pool.query(sql, params).then((r) => r.rows),
-  // Optional non-transactional write. Without it the statement runs in a one-statement transaction.
+  // Non-transactional single-statement write, used when a success leaves the circuit closed.
   run: (sql, params) => pool.query(sql, params).then(() => undefined),
   // A DDL statement (no params) — used by ensureSchema().
   exec: (sql) => pool.query(sql).then(() => undefined),
@@ -86,7 +86,7 @@ interface SqlDriver {
   readonly lockRows?: boolean                                       // default true
   transaction<R>(body: (tx: SqlTx) => Promise<R>): Promise<R>
   read(sql: string, params: unknown[]): Promise<unknown[]>
-  run?(sql: string, params: unknown[]): Promise<void>               // optional
+  run(sql: string, params: unknown[]): Promise<void>
   exec(sql: string): Promise<void>
 }
 

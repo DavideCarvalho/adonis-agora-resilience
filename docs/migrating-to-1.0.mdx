@@ -6,7 +6,7 @@ icon: ArrowUpCircle
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-1.0 keeps the 0.4 API as it is: `timeout`, `retry`, `circuitBreaker`, `failover`, `wrap`, `withResilience`, `defineConfig`, `stores`, the `ResilienceService` and every store work exactly as before. Upgrading is a dependency bump plus a check of the requirements below.
+Policies (`timeout`, `retry`, `circuitBreaker`, `failover`, `wrap`), `withResilience`, `defineConfig`, `stores` and the `ResilienceService` keep their 0.4 API. Two things changed: a custom `SqlDriver` must implement `run`, and the Redis and Lucid stores need their provider registered. Both are covered below, after the requirements.
 
 <Callout type="info">
   The first 1.0 builds ship under the `rc` tag. Install them with `pnpm add @adonis-agora/resilience@rc`.
@@ -14,7 +14,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Requirements
 
-- **Node.js 24+**. The package declares `"engines": { "node": ">=24" }`.
+- **Node.js 24+** (24 and 26 are tested in CI). The package declares `"engines": { "node": ">=24" }`.
 - **AdonisJS 7** (`@adonisjs/core ^7.3.0`).
 - Optional peers, only for the store you use: `@adonisjs/lucid ^22.4.0`, `@adonisjs/redis ^9.2.0 || ^10.0.0 || ^11.0.0`, or `ioredis ^5.0.0 || ^6.0.0`.
 
@@ -40,7 +40,7 @@ After:
 }
 ```
 
-Your `config/resilience.ts`, the provider registered in `adonisrc.ts` and the circuit table used by the Lucid store stay as they are. Circuits already stored in Redis or SQL keep their state across the upgrade.
+Your `config/resilience.ts` and the circuit table used by the Lucid store stay as they are. Circuits already stored in Redis or SQL keep their state across the upgrade.
 
 ```ts title="app/services/payment_gateway_service.ts"
 import resilience from '@adonis-agora/resilience/services/main'
@@ -58,4 +58,74 @@ export default class PaymentGatewayService {
     )
   }
 }
+```
+
+## `SqlDriver.run` is required
+
+A custom `SqlDriver` handed to `SqlResilienceStore` must implement `run`, a plain write outside a transaction. The store uses it when a success leaves the circuit closed.
+
+Before:
+
+```ts title="app/resilience/pg_driver.ts"
+import type { SqlDriver } from '@adonis-agora/resilience'
+import { pool } from '#services/pg_pool'
+
+export const driver: SqlDriver = {
+  placeholders: 'numbered',
+  transaction: (body) =>
+    pool.transaction((tx) =>
+      body({
+        run: (sql, params) => tx.query(sql, params).then(() => undefined),
+        all: (sql, params) => tx.query(sql, params).then((r) => r.rows),
+      }),
+    ),
+  read: (sql, params) => pool.query(sql, params).then((r) => r.rows),
+  exec: (sql) => pool.query(sql).then(() => undefined),
+}
+```
+
+After:
+
+```ts title="app/resilience/pg_driver.ts"
+import type { SqlDriver } from '@adonis-agora/resilience'
+import { pool } from '#services/pg_pool'
+
+export const driver: SqlDriver = {
+  placeholders: 'numbered',
+  transaction: (body) =>
+    pool.transaction((tx) =>
+      body({
+        run: (sql, params) => tx.query(sql, params).then(() => undefined),
+        all: (sql, params) => tx.query(sql, params).then((r) => r.rows),
+      }),
+    ),
+  read: (sql, params) => pool.query(sql, params).then((r) => r.rows),
+  run: (sql, params) => pool.query(sql, params).then(() => undefined),
+  exec: (sql) => pool.query(sql).then(() => undefined),
+}
+```
+
+The built-in Lucid and Redis stores need no change.
+
+## `stores.redis()` and `stores.lucid()` need the peer provider
+
+The Redis and Lucid stores take their connection from the `redis` and `lucid.db` container bindings only. They no longer fall back to importing `@adonisjs/redis/services/main` or `@adonisjs/lucid/services/db`. If the provider is missing, the store fails at boot with an error that names the service it needs.
+
+Before, the store could boot even if the provider list in `adonisrc.ts` did not include the peer provider:
+
+```ts title="adonisrc.ts"
+providers: [
+  () => import('@adonisjs/core/providers/app_provider'),
+  () => import('@adonis-agora/resilience/resilience_provider'),
+],
+```
+
+After, register the peer provider before the resilience provider:
+
+```ts title="adonisrc.ts"
+providers: [
+  () => import('@adonisjs/core/providers/app_provider'),
+  () => import('@adonisjs/redis/redis_provider'), // or '@adonisjs/lucid/database_provider'
+  () => import('@adonis-agora/resilience/resilience_provider'),
+],
 ```

@@ -34,13 +34,13 @@ jobs:
       - run: pnpm check:package
 
   # Lint, typecheck, build and package checks run once on the pinned version above; the test
-  # suite runs on every Node line we support (24 only for 1.0; add a line to the matrix to fan out).
+  # suite runs on every Node line we support (24 and 26: maintained by Node and accepted by AdonisJS 7).
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node: [24]
+        node: [24, 26]
     name: test (node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@v7.0.1

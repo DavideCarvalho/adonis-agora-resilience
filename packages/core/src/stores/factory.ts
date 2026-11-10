@@ -49,34 +49,15 @@ export interface RedisStoreConfig extends RedisResilienceStoreOptions {
 }
 
 /**
- * Resolve a peer service (`redis`, `lucid.db`) for a store thunk the provider runs at boot.
- *
- * The container binding is registered in the peer provider's `register()`, so it exists while the
- * resilience service is being built. The `services/main` / `services/db` default export does NOT:
- * it is only assigned in `app.booted()`, so a `ResilienceService` resolved during boot (a class
- * injected into something the app instantiates while booting) read `undefined` and failed with
- * `Cannot read properties of undefined (reading 'connection')`. The service module stays as the
- * fallback for a context without the binding.
+ * Resolve a peer service (`redis`, `lucid.db`) from the container for a store thunk the provider
+ * runs at boot. The binding is registered in the peer provider's `register()`, so it exists while
+ * the resilience service is being built, including when that happens before `app.booted()`.
  */
-async function resolveService<T>(
-  ctx: StoreContext | undefined,
-  binding: string,
-  fromModule: () => Promise<unknown>,
-  method: string,
-): Promise<T> {
-  const looksRight = (value: unknown): value is T =>
-    typeof (value as Record<string, unknown> | undefined)?.[method] === 'function';
-  if (ctx?.app) {
-    try {
-      const bound = await ctx.app.container.make(binding as never);
-      if (looksRight(bound)) return bound;
-    } catch {
-      // Not bound (the peer provider is missing): fall through to the service module.
-    }
+async function resolveService<T>(ctx: StoreContext, binding: string, method: string): Promise<T> {
+  const bound = await ctx.app.container.make(binding as never).catch(() => undefined);
+  if (typeof (bound as Record<string, unknown> | undefined)?.[method] === 'function') {
+    return bound as T;
   }
-  // The peer package itself may not be installed: that is the same "missing provider" case.
-  const fromService = await fromModule().catch(() => undefined);
-  if (looksRight(fromService)) return fromService;
   throw new Error(
     `@adonis-agora/resilience: the store needs the '${binding}' service. Register its provider ` +
       'in adonisrc.ts before the resilience provider.',
@@ -118,7 +99,6 @@ export const stores = {
       const db = await resolveService<{ connection(name: string): unknown }>(
         ctx,
         'lucid.db',
-        async () => (await import('@adonisjs/lucid/services/db')).default,
         'connection',
       );
       const { lucidResilienceStore } = await import('./lucid.js');
@@ -134,7 +114,6 @@ export const stores = {
       const redisService = await resolveService<{ connection(name?: string): unknown }>(
         ctx,
         'redis',
-        async () => (await import('@adonisjs/redis/services/main')).default,
         'connection',
       );
       const { redisResilienceStore } = await import('./redis.js');
