@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 1.0.0-rc.8
+
+### Patch Changes
+
+- [#151](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/151) [`bca02a7`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/bca02a7acd598211b91429589e545d829e1bc8ba) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The Lucid/SQL store works on MySQL 8 and MariaDB, as the docs said. Before, its first statement failed there (`key TEXT PRIMARY KEY`, the reserved word `key` unquoted, `ON CONFLICT`) and rows from `mysql2` were misread. On MySQL the key columns are `VARCHAR(512)` with the `utf8mb4_bin` collation (`MYSQL_KEY_LENGTH`; keys compare exactly, as on Postgres), `key` is quoted, and existing rows are skipped with `ON DUPLICATE KEY UPDATE`. `SqlDriver` takes `dialect: 'mysql'` and the DDL helpers take `{ dialect: 'mysql' }`. Postgres and SQLite SQL is unchanged.
+
 ## 1.0.0-rc.7
 
 ### Minor Changes
