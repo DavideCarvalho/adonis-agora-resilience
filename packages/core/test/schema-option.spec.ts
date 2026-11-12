@@ -6,6 +6,7 @@ import {
   RESILIENCE_DDL,
   resilienceDdl,
   resilienceTableNames,
+  SqlResilienceStore,
 } from '../src/index.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid-helpers.js';
 
@@ -100,5 +101,43 @@ describe('MySQL dialect', () => {
   it('leaves the standard DDL exactly as before', () => {
     expect(resilienceDdl({ dialect: 'standard' })).toEqual([...RESILIENCE_DDL]);
     expect(CIRCUITS_DDL).toContain('  key        TEXT PRIMARY KEY,');
+  });
+});
+
+describe('MySQL statements (recorded, no database)', () => {
+  it('quote `key` and skip existing rows with ON DUPLICATE KEY UPDATE', async () => {
+    const sql: string[] = [];
+    const tx = {
+      run: async (statement: string) => void sql.push(statement),
+      all: async (statement: string) => {
+        sql.push(statement);
+        return [];
+      },
+    };
+    const store = new SqlResilienceStore({
+      placeholders: 'positional',
+      dialect: 'mysql',
+      transaction: (body) => body(tx),
+      read: tx.all,
+      run: tx.run,
+      exec: async (statement) => void sql.push(statement),
+    });
+    await store.record('k', { threshold: 1, cooldownMs: 1000 }, false, false);
+    await store.admit('k', { threshold: 1, cooldownMs: 1000 });
+    await store.keys({ prefix: '', limit: 5 });
+    await store.reset('k');
+    await store.acquireBulkhead('b', { limit: 1, leaseMs: 1000 });
+    await store.bulkheadKeys({ prefix: '', limit: 5 });
+    await store.consumeRateLimit('r', { limit: 1, intervalMs: 1000 }, 1);
+    await store.rateLimitKeys({ prefix: '', limit: 5 });
+    await store.ensureSchema();
+
+    expect(sql.length).toBeGreaterThan(10);
+    for (const statement of sql) {
+      expect(statement).not.toContain('ON CONFLICT');
+      // Every `key` column reference is backticked (PRIMARY KEY / DUPLICATE KEY are uppercase).
+      expect(statement.replaceAll('`key`', '')).not.toMatch(/\bkey\b/);
+    }
+    expect(sql.filter((s) => s.includes('ON DUPLICATE KEY UPDATE `key` = `key`'))).toHaveLength(3);
   });
 });

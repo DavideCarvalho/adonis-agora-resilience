@@ -6,6 +6,8 @@ function url(): URL {
   return new URL(value);
 }
 
+const database = () => url().pathname.slice(1);
+
 runIntegrationSuite({
   name: 'MySQL',
   makeDatabase(credentials) {
@@ -17,11 +19,13 @@ runIntegrationSuite({
         port: Number(u.port),
         user: credentials?.user ?? decodeURIComponent(u.username),
         password: credentials?.password ?? decodeURIComponent(u.password),
-        database: u.pathname.slice(1),
+        database: database(),
       },
     });
   },
-  defaultSchema: 'resilience',
+  get defaultSchema() {
+    return database();
+  },
   quote: (identifier) => `\`${identifier}\``,
   dropSchema: (name) => `DROP DATABASE IF EXISTS \`${name}\``,
   createSchema: 'CREATE DATABASE IF NOT EXISTS',
@@ -30,7 +34,7 @@ runIntegrationSuite({
     // Can use the default database, cannot create others.
     const user = `res_ro_${Date.now()}`;
     await db.rawQuery(`CREATE USER '${user}'@'%' IDENTIFIED BY 'pw'`);
-    await db.rawQuery(`GRANT ALL ON \`resilience\`.* TO '${user}'@'%'`);
+    await db.rawQuery(`GRANT ALL ON \`${database()}\`.* TO '${user}'@'%'`);
     return {
       user,
       password: 'pw',
