@@ -333,11 +333,10 @@ export class ResilienceService {
     const keysByStore = await this.collectKeys('bulkhead', query, limit, (store) =>
       isBulkheadStore(store) ? store.bulkheadKeys?.bind(store) : undefined,
     );
-    const out: BulkheadInfo[] = [];
-    for (const [store, keys] of keysByStore) {
-      if (!isBulkheadStore(store)) continue;
-      for (const key of keys) out.push(await this.bulkheadInfo(key, store));
-    }
+    const pairs = [...keysByStore].flatMap(([store, keys]) =>
+      isBulkheadStore(store) ? [...keys].map((key) => ({ store, key })) : [],
+    );
+    const out = await mapLimit(pairs, 16, ({ key, store }) => this.bulkheadInfo(key, store));
     return out.sort((a, b) => b.active - a.active || a.key.localeCompare(b.key)).slice(0, limit);
   }
 
@@ -355,11 +354,10 @@ export class ResilienceService {
     const keysByStore = await this.collectKeys('rate-limiter', query, limit, (store) =>
       isRateLimitStore(store) ? store.rateLimitKeys?.bind(store) : undefined,
     );
-    const out: RateLimiterInfo[] = [];
-    for (const [store, keys] of keysByStore) {
-      if (!isRateLimitStore(store)) continue;
-      for (const key of keys) out.push(await this.rateLimiterInfo(key, store));
-    }
+    const pairs = [...keysByStore].flatMap(([store, keys]) =>
+      isRateLimitStore(store) ? [...keys].map((key) => ({ store, key })) : [],
+    );
+    const out = await mapLimit(pairs, 16, ({ key, store }) => this.rateLimiterInfo(key, store));
     const fill = (r: RateLimiterInfo) =>
       r.remaining !== undefined && r.limit !== undefined
         ? r.remaining / (r.burst ?? r.limit)
@@ -521,14 +519,14 @@ export class ResilienceService {
 
   private async bulkheadInfo(key: string, store: BulkheadStore): Promise<BulkheadInfo> {
     const { active } = await store.bulkheadSnapshot(key);
-    const known = this.known.get('bulkhead', key);
+    const known = this.known.get('bulkhead', key, store);
     const info: BulkheadInfo = {
       key,
       store: this.storeName(store),
       active,
       scope: this.storeScope(store),
     };
-    if (known?.store === store) {
+    if (known) {
       if (known.policy !== undefined) info.policy = known.policy;
       if (typeof known.config?.limit === 'number') info.limit = known.config.limit;
       if (typeof known.config?.queue === 'number') info.queue = known.config.queue;
@@ -538,15 +536,14 @@ export class ResilienceService {
 
   private async rateLimiterInfo(key: string, store: RateLimitStore): Promise<RateLimiterInfo> {
     const snapshot = await store.rateLimitSnapshot(key);
-    const known = this.known.get('rate-limiter', key);
+    const known = this.known.get('rate-limiter', key, store);
     const info: RateLimiterInfo = {
       key,
       store: this.storeName(store),
       scope: this.storeScope(store),
     };
-    const config =
-      known?.store === store ? (known.config as RateLimitConfig | undefined) : undefined;
-    if (known?.store === store && known.policy !== undefined) info.policy = known.policy;
+    const config = known?.config as RateLimitConfig | undefined;
+    if (known?.policy !== undefined) info.policy = known.policy;
     if (config && typeof config.limit === 'number' && typeof config.intervalMs === 'number') {
       info.limit = config.limit;
       info.intervalMs = config.intervalMs;
