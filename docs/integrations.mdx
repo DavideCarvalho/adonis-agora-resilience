@@ -40,7 +40,7 @@ What emits each type:
 
 ### The policy name
 
-Every event of a policy run with `resilience.execute('stripe', op)` carries `policy: 'stripe'`, including `retry`, `timeout` and the breaker events. Inline policies (`execute(timeout(1_000), op)`) have no name, so the field is absent.
+Every event of a policy run with `resilience.execute('stripe', op)` carries `policy: 'stripe'`, including `retry`, `timeout` and the breaker events, and so does an `onEvent` you pass to a policy built in that factory. A `resilience.failover(…)` called inside that operation stamps its `failover` events with the same name. Inline policies (`execute(timeout(1_000), op)`) have no name, so the field is absent.
 
 ### Call counts and error rates: `executed`
 

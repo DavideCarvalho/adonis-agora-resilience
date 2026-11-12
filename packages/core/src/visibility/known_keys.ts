@@ -21,6 +21,21 @@ export interface KnownKey {
  */
 export class KnownKeys {
   readonly #byKind = new Map<StatefulKind, Map<string, KnownKey>>();
+  readonly #storeIds = new WeakMap<object, number>();
+  #nextStoreId = 1;
+
+  /** One index slot per (store, key): the same key on two stores is two entries. */
+  #id(store: unknown, key: string): string {
+    let id = 0;
+    if ((typeof store === 'object' || typeof store === 'function') && store !== null) {
+      id = this.#storeIds.get(store) ?? 0;
+      if (id === 0) {
+        id = this.#nextStoreId++;
+        this.#storeIds.set(store, id);
+      }
+    }
+    return `${id}\u0000${key}`;
+  }
 
   constructor(readonly maxPerKind = 1000) {}
 
@@ -30,7 +45,7 @@ export class KnownKeys {
       map = new Map();
       this.#byKind.set(entry.kind, map);
     }
-    const id = entry.key;
+    const id = this.#id(entry.store, entry.key);
     const previous = map.get(id);
     map.delete(id);
     map.set(id, {
@@ -46,8 +61,8 @@ export class KnownKeys {
     }
   }
 
-  get(kind: StatefulKind, key: string): KnownKey | undefined {
-    return this.#byKind.get(kind)?.get(key);
+  get(kind: StatefulKind, key: string, store: unknown): KnownKey | undefined {
+    return this.#byKind.get(kind)?.get(this.#id(store, key));
   }
 
   /** Every known key of `kind`, most recently touched first. */

@@ -145,7 +145,7 @@ function globEscape(value: string): string {
 
 /**
  * List the keys under `namespace` (+ the query prefix) with `SCAN`, stripping the namespace. Stops at
- * `limit` (capped at 500) or when the cursor wraps. Empty when the client has no `scan`.
+ * `limit` (capped at 1000) or when the cursor wraps. Empty when the client has no `scan`.
  */
 export async function scanKeys(
   redis: RedisLike,
@@ -153,7 +153,7 @@ export async function scanKeys(
   opts: KeysQuery,
 ): Promise<string[]> {
   if (typeof redis.scan !== 'function') return [];
-  const limit = Math.max(0, Math.min(500, Math.floor(opts.limit)));
+  const limit = Math.max(0, Math.min(1000, Math.floor(opts.limit)));
   const wanted = namespace + (opts.prefix ?? '');
   const match = `${globEscape(wanted)}*`;
   const out = new Set<string>();

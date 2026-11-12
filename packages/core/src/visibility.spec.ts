@@ -76,7 +76,7 @@ describe('policy name on events', () => {
     expect(events.find((e) => e.type === 'circuit-opened')?.key).toBe('stripe');
   });
 
-  it('leaves the policy out for inline policies and keeps explicit onEvent sinks unchanged', async () => {
+  it('leaves the policy out for inline policies and stamps explicit onEvent sinks too', async () => {
     const own: ResilienceEvent[] = [];
     const { service, events } = collecting({
       policies: { named: () => retry({ attempts: 2, onEvent: (e) => own.push(e) }) },
@@ -84,8 +84,31 @@ describe('policy name on events', () => {
     await expect(service.execute(retry({ attempts: 2 }), fail)).rejects.toThrow();
     expect(events).toEqual([]);
     await expect(service.execute('named', fail)).rejects.toThrow();
-    expect(own[0]?.policy).toBeUndefined();
+    expect(own[0]?.policy).toBe('named');
     expect(events[0]?.policy).toBe('named');
+  });
+
+  it('stamps failover events run inside a named policy and keeps the caller onEvent alongside', async () => {
+    const own: ResilienceEvent[] = [];
+    const { service, events } = collecting({ policies: { sms: () => retry({ attempts: 1 }) } });
+    await service.execute('sms', () =>
+      service.failover({
+        targets: ['twilio', 'vonage'],
+        run: async (target) => {
+          if (target === 'twilio') throw new Error('down');
+          return target;
+        },
+        onEvent: (e) => own.push(e),
+      }),
+    );
+    expect(events).toEqual([
+      expect.objectContaining({ type: 'failover', target: 'twilio', policy: 'sms' }),
+    ]);
+    expect(own).toEqual([expect.objectContaining({ type: 'failover', policy: 'sms' })]);
+    await expect(
+      service.failover({ targets: ['a'], run: () => Promise.reject(new Error('x')) }),
+    ).rejects.toThrow('x');
+    expect(events.at(-1)?.policy).toBeUndefined();
   });
 });
 
@@ -133,8 +156,8 @@ describe('known keys index', () => {
     index.record({ kind: 'circuit', key: 'k5', store: null, seenAt: 2000 });
     index.record({ kind: 'circuit', key: 'k1005', store: null, seenAt: 2001 });
     expect(index.size('circuit')).toBe(1000);
-    expect(index.get('circuit', 'k5')).toBeDefined();
-    expect(index.get('circuit', 'k6')).toBeUndefined();
+    expect(index.get('circuit', 'k5', null)).toBeDefined();
+    expect(index.get('circuit', 'k6', null)).toBeUndefined();
     expect(index.list('circuit')[0]?.key).toBe('k1005');
   });
 
@@ -142,7 +165,18 @@ describe('known keys index', () => {
     const index = new KnownKeys();
     index.record({ kind: 'circuit', key: 'a', store: null, policy: 'p', seenAt: 1 });
     index.record({ kind: 'circuit', key: 'a', store: null, seenAt: 2 });
-    expect(index.get('circuit', 'a')?.policy).toBe('p');
+    expect(index.get('circuit', 'a', null)?.policy).toBe('p');
+  });
+
+  it('keeps the same key on two stores apart', () => {
+    const index = new KnownKeys();
+    const a = {};
+    const b = {};
+    index.record({ kind: 'circuit', key: 'k', store: a, policy: 'pa', seenAt: 1 });
+    index.record({ kind: 'circuit', key: 'k', store: b, policy: 'pb', seenAt: 2 });
+    expect(index.get('circuit', 'k', a)?.policy).toBe('pa');
+    expect(index.get('circuit', 'k', b)?.policy).toBe('pb');
+    expect(index.size('circuit')).toBe(2);
   });
 });
 

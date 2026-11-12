@@ -4,11 +4,13 @@ import type { CircuitSnapshot, CircuitStatus } from './breaker/types.js';
 import { describePolicy } from './describe.js';
 import {
   combineSinks,
+  currentPolicy,
   type EventSink,
   type KeyObservation,
   noopSink,
   type PolicyAmbient,
   type ResilienceEvent,
+  runInPolicy,
   withAmbient,
 } from './events.js';
 import { defaultSanitizeError, diagnosticsSink } from './integration/diagnostics.js';
@@ -155,9 +157,23 @@ export class ResilienceService {
     return this.executeNamed(policy, factory, op);
   }
 
-  /** Ordered failover across targets, wired to this service's event sink. */
+  /**
+   * Ordered failover across targets, wired to this service's event sink (and to your `onEvent`, if
+   * any). Called inside a named policy, its events carry that policy's name.
+   */
   failover<TTarget, R>(opts: FailoverOptions<TTarget, R>): Promise<R> {
-    return failover({ onEvent: this.sink, ...opts });
+    const policy = currentPolicy();
+    const service: EventSink =
+      policy === undefined ? this.sink : (event) => this.sink({ ...event, policy });
+    const own = opts.onEvent;
+    const onEvent: EventSink =
+      own === undefined
+        ? service
+        : combineSinks(
+            (event) => own(policy === undefined ? event : { ...event, policy }),
+            service,
+          );
+    return failover({ ...opts, onEvent });
   }
 
   /**
@@ -202,7 +218,7 @@ export class ResilienceService {
       ...(opts.by !== undefined ? { by: opts.by } : {}),
       ...(opts.via !== undefined ? { via: opts.via } : {}),
     };
-    const policy = this.known.get('circuit', key)?.policy;
+    const policy = this.known.get('circuit', key, store)?.policy;
     if (policy !== undefined) event.policy = policy;
     this.sink(event);
     this.logger?.info(
@@ -255,10 +271,10 @@ export class ResilienceService {
       if (query.store && store !== targets[0]) continue;
       add(store, known.key);
     }
-    const infos: CircuitInfo[] = [];
-    for (const [store, keys] of keysByStore) {
-      for (const key of keys) infos.push(await this.circuitInfo(key, store));
-    }
+    const pairs = [...keysByStore].flatMap(([store, keys]) =>
+      [...keys].map((key) => ({ store, key })),
+    );
+    const infos = await mapLimit(pairs, 16, ({ key, store }) => this.circuitInfo(key, store));
     return infos
       .filter((c) => query.status === undefined || c.status === query.status)
       .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.key.localeCompare(b.key))
@@ -325,13 +341,14 @@ export class ResilienceService {
     let retries = 0;
     const sink: EventSink = (event) => {
       if (event.type === 'retry') retries += 1;
-      this.sink({ ...event, policy: name });
+      this.sink(event.policy === undefined ? { ...event, policy: name } : event);
     };
     const policy = withAmbient(this.ambientFor(name, sink), factory);
-    if (!this.executedEvents) return policy.execute(op);
+    const run = () => runInPolicy(name, () => policy.execute(op));
+    if (!this.executedEvents) return run();
     const started = performance.now();
     try {
-      const result = await policy.execute(op);
+      const result = await run();
       this.sink({
         type: 'executed',
         policy: name,
@@ -355,8 +372,8 @@ export class ResilienceService {
 
   private async circuitInfo(key: string, store: ResilienceStore): Promise<CircuitInfo> {
     const snapshot = await store.snapshot(key);
-    const known = this.known.get('circuit', key);
-    const sameStore = known?.store === store;
+    const known = this.known.get('circuit', key, store);
+    const sameStore = known !== undefined;
     const info: CircuitInfo = {
       key,
       store: this.storeName(store),
@@ -390,6 +407,24 @@ export class ResilienceService {
     if (!store) throw new Error(`Unknown resilience store "${name}".`);
     return store;
   }
+}
+
+/** `fn` over `items`, at most `limit` at a time, results in input order. */
+export async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      out[index] = await fn(items[index] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 function elapsed(started: number): number {

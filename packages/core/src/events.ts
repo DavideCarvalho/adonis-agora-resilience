@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ResilienceStore } from './breaker/store.js';
 
 export type ResilienceEventType =
@@ -110,5 +111,22 @@ export function currentAmbient(): PolicyAmbient {
  * policy build time to capture the ambient sink then in effect.
  */
 export function policySink(onEvent?: EventSink): EventSink {
-  return combineSinks(onEvent ?? noopSink, ambient.sink);
+  const sink = combineSinks(onEvent ?? noopSink, ambient.sink);
+  const policy = ambient.policy;
+  if (policy === undefined) return sink;
+  // Stamp before fanning out, so an explicit `onEvent` sees the same event the service does.
+  return (event) => sink(event.policy === undefined ? { ...event, policy } : event);
+}
+
+/** The named policy currently executing (set by `ResilienceService.execute(name, …)` for the call). */
+const running = new AsyncLocalStorage<string>();
+
+/** Run `fn` as part of the named policy `name` (async context, for events emitted at run time). */
+export function runInPolicy<T>(name: string, fn: () => T): T {
+  return running.run(name, fn);
+}
+
+/** The named policy the current async context runs in, if any. */
+export function currentPolicy(): string | undefined {
+  return running.getStore();
 }
