@@ -1,5 +1,14 @@
 # @adonis-agora/resilience
 
+## 1.0.0-rc.4
+
+### Minor Changes
+
+- [#146](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/146) [`c6c2470`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/c6c2470de2bcc3d1fc0d43ddb95ea2b41740dfc6) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Developer tools and commands:
+  
+  - With `@adonis-agora/agent`'s MCP provider installed, resilience registers its tools on the dev MCP endpoint (`/mcp/agora`), gated by the endpoint's `devTools.authorize`: `resilience_list_policies`, `resilience_list_circuits`, `resilience_get_circuit`, `resilience_list_bulkheads`, `resilience_list_rate_limiters`, `resilience_list_recent_events` and the action `resilience_reset_circuit` (audited with the caller). `devTools: false` in `config/resilience.ts` leaves them out.
+  - New ace commands `resilience:circuits` (`--status`, `--store`, `--json`) and `resilience:reset <key>` (`--store`), exported as `@adonis-agora/resilience/commands` and registered by `configure`. Existing apps add `() => import('@adonis-agora/resilience/commands')` to `commands` in `adonisrc.ts`.
+
 ## 1.0.0-rc.3
 
 ### Minor Changes
