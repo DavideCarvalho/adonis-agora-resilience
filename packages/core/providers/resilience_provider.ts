@@ -1,6 +1,7 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { ResilienceStore } from '../src/breaker/store.js';
 import type { ResilienceConfig } from '../src/define_config.js';
+import { registerDevTools } from '../src/dev_tools/tools.js';
 import { ResilienceService } from '../src/resilience_service.js';
 import { resilienceTelescopeExtension } from '../src/telescope/extension.js';
 import { type ExtensionsContainer, registerTelescopeExtension } from '../src/telescope/register.js';
@@ -42,6 +43,7 @@ export default class ResilienceProvider {
         stores: providers,
         store,
         telescope: _telescope,
+        devTools: _devTools,
         ...rest
       } = config;
 
@@ -68,5 +70,27 @@ export default class ResilienceProvider {
         stores: resolved,
       });
     });
+  }
+
+  /**
+   * Registers the resilience developer tools on the agent's dev MCP endpoint (`/mcp/agora`) when
+   * `@adonis-agora/agent`'s MCP provider is installed. `devTools: false` in config/resilience.ts
+   * leaves them out.
+   */
+  async boot() {
+    if (this.app.config.get<boolean>('resilience.devTools', true) === false) return;
+    const outcome = await registerDevTools(this.app.container as never, () =>
+      this.app.container.make(ResilienceService),
+    );
+    if (outcome === 'unsupported' || outcome === 'failed') {
+      const logger = (await this.app.container.make('logger').catch(() => undefined)) as
+        | { debug(msg: string): void }
+        | undefined;
+      logger?.debug(
+        outcome === 'unsupported'
+          ? '[@adonis-agora/resilience] dev tools not registered: the installed @adonis-agora/agent cannot gate libs without a console (needs devTools.authorize support)'
+          : '[@adonis-agora/resilience] dev tools could not be registered',
+      );
+    }
   }
 }

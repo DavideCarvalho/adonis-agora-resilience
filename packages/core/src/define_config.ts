@@ -22,6 +22,11 @@ export interface ResilienceConfig
    * `false` leaves it out; `{ reset: false }` hides the Reset button. Default `true`.
    */
   telescope?: boolean | ResilienceTelescopeOptions;
+  /**
+   * Developer tools on `@adonis-agora/agent`'s dev MCP endpoint (`/mcp/agora`), gated by its
+   * `devTools.authorize`. Default `true`; `false` leaves them out.
+   */
+  devTools?: boolean;
 }
 
 /** Identity helper giving `config/resilience.ts` full type-checking. */

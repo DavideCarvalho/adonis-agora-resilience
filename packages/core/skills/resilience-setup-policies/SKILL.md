@@ -44,8 +44,11 @@ node ace add @adonis-agora/resilience
 node ace configure @adonis-agora/resilience
 ```
 
-This registers `@adonis-agora/resilience/resilience_provider` in `adonisrc.ts`
-and writes `config/resilience.ts`:
+This registers `@adonis-agora/resilience/resilience_provider` and
+`@adonis-agora/resilience/commands` in `adonisrc.ts` and writes
+`config/resilience.ts` (existing apps add
+`() => import('@adonis-agora/resilience/commands')` to `commands` in
+`adonisrc.ts`):
 
 ```ts
 // config/resilience.ts
@@ -158,7 +161,7 @@ import resilience from '@adonis-agora/resilience/services/main'
 const snap = await resilience.circuit('payments').snapshot()
 // { status: 'closed' | 'open' | 'half-open', failures: number, openUntil?: number }
 
-await resilience.circuit('payments').reset() // force back to closed, failures = 0
+await resilience.circuit('payments').reset() // force back to closed, failures = 0 (emits `circuit-reset` + audit log via `resetCircuit`)
 
 const redis = resilience.circuitStore('redis') // throws if 'redis' is not in config.stores
 ```

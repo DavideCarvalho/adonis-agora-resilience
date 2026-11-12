@@ -1,0 +1,67 @@
+---
+title: MCP tools and commands
+description: Let your coding agent read circuits, bulkheads, rate limiters and recent events over the Agora dev MCP endpoint, reset a circuit, and do the same from the terminal with ace commands.
+icon: Terminal
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## MCP tools
+
+With [`@adonis-agora/agent`](/docs/agent)'s MCP provider installed, resilience adds its tools to the developer MCP endpoint (`/mcp/agora`), next to the other Agora libraries' tools. Connect Claude Code (or any MCP client) to it as the [agent docs](/docs/agent/dev-tools) show, then ask things like *"which circuits are open?"* or *"why does the stripe policy keep retrying?"*.
+
+| Tool | Kind | What it returns |
+| --- | --- | --- |
+| `resilience_list_policies` | read | the named policies and what each is made of |
+| `resilience_list_circuits` | read | circuits with their live state (`status`, `store`, `prefix`, `limit`, `page`) |
+| `resilience_get_circuit` | read | one circuit (`key`, `store`) and its last 10 events |
+| `resilience_list_bulkheads` | read | bulkheads with the calls running now |
+| `resilience_list_rate_limiters` | read | rate limiters with the budget left |
+| `resilience_list_recent_events` | read | the last events of the process serving the request (`type`, `key`, `policy`, `limit`) |
+| `resilience_reset_circuit` | action | resets a circuit (`key`, `store`); logs who did it and emits `circuit-reset` |
+
+Lists return `{ items, next }`: pass `next` as `page` to get the following page.
+
+Resilience has no console of its own, so who may use these tools is decided by the endpoint's `devTools.authorize` in `config/mcp.ts`. Without it the tools are open outside production and refused in production:
+
+```ts title="config/mcp.ts"
+import env from '#start/env'
+import { authorizeByToken } from '@adonis-agora/agent'
+import { defineMcpConfig } from '@adonis-agora/agent/mcp'
+
+export default defineMcpConfig({
+  name: 'Acme',
+  version: '1.0.0',
+  // …your product endpoint…
+  devTools: {
+    authorize: authorizeByToken({ token: env.get('CONSOLE_TOKEN') }),
+    actions: ['resilience'], // let the agent run resilience_reset_circuit
+  },
+})
+```
+
+The reset action only shows up when the endpoint's `actions` allows it. Leave the tools out entirely with `devTools: false` in `config/resilience.ts`.
+
+<Callout type="info">
+`resilience_list_recent_events` reads the process that answered the MCP request. For history across the fleet, use the [Telescope page](/docs/resilience/telescope).
+</Callout>
+
+## Commands
+
+```bash
+node ace resilience:circuits                       # every circuit, open first
+node ace resilience:circuits --status=open --json  # machine-readable, for scripts
+node ace resilience:reset payments                 # close the payments circuit on the default store
+node ace resilience:reset search --store=redis     # on a named store
+```
+
+`resilience:reset` logs an audit line and emits `circuit-reset` with `by: 'cli'`. With the memory store, a command resets the circuit of its own process only, so use it with a shared store (Redis, Lucid).
+
+`node ace configure @adonis-agora/resilience` registers the commands. In an app configured before they existed, add them to `adonisrc.ts`:
+
+```ts title="adonisrc.ts"
+commands: [
+  () => import('@adonisjs/core/commands'),
+  () => import('@adonis-agora/resilience/commands'),
+],
+```
