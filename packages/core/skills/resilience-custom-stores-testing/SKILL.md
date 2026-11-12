@@ -162,6 +162,11 @@ EXISTS` first, and a migration can run `resilienceDdl({ schema })`. Never use a
 connection with `searchPath` for this (it leaks behind PgBouncer). SQLite +
 `schema` throws at boot.
 
+On MySQL the store adapts its SQL itself (quoted `key`, `ON DUPLICATE KEY
+UPDATE`); keys are `VARCHAR(512)` with `utf8mb4_bin` (max 512 characters,
+exact comparison). Migrations on MySQL: `resilienceDdl({ dialect: 'mysql' })`.
+A custom `SqlDriver` for MySQL sets `dialect: 'mysql'`.
+
 Source: `docs/stores.mdx § "Lucid: migration over auto-create"`,
 `docs/stores.mdx § "Lucid: database schema"`,
 `packages/core/src/stores/lucid.ts`.

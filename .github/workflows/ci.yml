@@ -57,7 +57,7 @@ jobs:
 
       - run: pnpm test
 
-  # The Lucid store against a real Postgres (docker CLI): schema-qualified SQL, the app's
+  # The Lucid store against a real Postgres and MySQL 8 (docker CLI): schema-qualified SQL, the app's
   # transaction, the doctor's schema report.
   integration:
     runs-on: ubuntu-latest

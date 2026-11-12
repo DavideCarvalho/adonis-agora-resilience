@@ -160,9 +160,18 @@ interface LucidStoreConfig {
   clock?: Clock
   autoCreateSchema?: boolean  // default true — set false if you own the schema via a migration
   useRowLocks?: boolean       // override dialect auto-detection
-  schema?: string             // Postgres schema for the tables — see "Database schema" below
+  schema?: string             // Postgres schema (MySQL: database) — see "Database schema" below
 }
 ```
+
+### MySQL
+
+The store works on MySQL 8 and MariaDB as it does on Postgres. The driver detects the dialect and adapts the SQL: the reserved `key` column is quoted, an existing row is skipped with `ON DUPLICATE KEY UPDATE`, and the tables differ in two ways:
+
+- **Keys are at most 512 characters.** MySQL cannot index a `TEXT` primary key, so every `key` column is `VARCHAR(512)` (`MYSQL_KEY_LENGTH`). A longer circuit, bulkhead or rate-limiter key is rejected by the database. Keys on Postgres and SQLite are `TEXT` and unbounded.
+- **Keys compare exactly.** The key columns use the `utf8mb4_bin` collation, so `Payments` and `payments` (or `cafe` and `café`) are different circuits, as on Postgres.
+
+When you own the tables with a migration on MySQL, create them from `resilienceDdl({ dialect: 'mysql' })` rather than the Postgres-shaped example below.
 
 ### Building it by hand
 
@@ -277,7 +286,7 @@ The name must be a plain identifier: letters, digits, `_` and `$`, not starting 
 Don't put the tables in another schema with a Lucid connection that sets `searchPath`. Knex sends `SET search_path` on the session, and behind PgBouncer in transaction mode that setting leaks to other clients' connections. Use `schema` instead: it never touches `search_path`.
 </Callout>
 
-`schema` needs Postgres. On SQLite, which has no schemas, building the store with `schema` throws at boot instead of ignoring it.
+On MySQL, `schema` is the database the tables go in (`` `resilience`.`resilience_circuits` ``), created with `CREATE DATABASE IF NOT EXISTS` on first use; the role needs `CREATE` on `*.*` for that, or create the database yourself. On SQLite, which has no schemas, building the store with `schema` throws at boot instead of ignoring it.
 
 With `node ace agora:doctor --deep`, the `resilience.store-reachable` check also reports whether the schema exists, whether the three tables are in it, and whether the connection can write there.
 
@@ -290,6 +299,7 @@ import { resilienceDdl } from '@adonis-agora/resilience'
 export default class extends BaseSchema {
   async up() {
     // CREATE SCHEMA IF NOT EXISTS "resilience", then the three tables in it
+    // on MySQL: resilienceDdl({ schema: 'resilience', dialect: 'mysql' })
     for (const ddl of resilienceDdl({ schema: 'resilience' })) this.schema.raw(ddl)
   }
 

@@ -29,7 +29,7 @@ describe('schema option', () => {
     expect(resilienceTableNames({ schema: 'resilience' }).circuits).toBe(
       '"resilience"."resilience_circuits"',
     );
-    expect(resilienceTableNames({ schema: 'ops', quote: 'backtick' }).rateLimits).toBe(
+    expect(resilienceTableNames({ schema: 'ops', dialect: 'mysql' }).rateLimits).toBe(
       '`ops`.`resilience_rate_limits`',
     );
   });
@@ -38,7 +38,7 @@ describe('schema option', () => {
     const ddl = resilienceDdl({ schema: 'resilience' });
     expect(ddl[0]).toBe('CREATE SCHEMA IF NOT EXISTS "resilience"');
     expect(ddl.slice(1).every((s) => s.includes('"resilience"."resilience_'))).toBe(true);
-    expect(resilienceDdl({ schema: 'ops', quote: 'backtick' })[0]).toBe(
+    expect(resilienceDdl({ schema: 'ops', dialect: 'mysql' })[0]).toBe(
       'CREATE DATABASE IF NOT EXISTS `ops`',
     );
   });
@@ -77,5 +77,28 @@ describe('schema option', () => {
     const db = makeMemoryDatabase();
     open.push(db);
     expect(await lucidResilienceStore(asLucidDatabase(db)).inspectSchema()).toBeUndefined();
+  });
+});
+
+describe('MySQL dialect', () => {
+  it('uses bounded, binary-collated keys and quotes the reserved `key` column', () => {
+    const [circuits, leases, buckets] = resilienceDdl({ dialect: 'mysql' });
+    for (const ddl of [circuits, leases, buckets]) {
+      expect(ddl).toContain('`key`      VARCHAR(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin');
+      expect(ddl).not.toMatch(/\bTEXT\b/);
+    }
+    expect(circuits).toContain("status     VARCHAR(16) NOT NULL DEFAULT 'closed'");
+    expect(leases).toContain('PRIMARY KEY (`key`, lease_id)');
+  });
+
+  it('qualifies with backticks and creates a database', () => {
+    expect(resilienceDdl({ schema: 'ops', dialect: 'mysql' })[1]).toContain(
+      'CREATE TABLE IF NOT EXISTS `ops`.`resilience_circuits`',
+    );
+  });
+
+  it('leaves the standard DDL exactly as before', () => {
+    expect(resilienceDdl({ dialect: 'standard' })).toEqual([...RESILIENCE_DDL]);
+    expect(CIRCUITS_DDL).toContain('  key        TEXT PRIMARY KEY,');
   });
 });

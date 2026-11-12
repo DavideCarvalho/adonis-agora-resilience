@@ -87,6 +87,7 @@ interface SqlTx {
 interface SqlDriver {
   readonly placeholders: SqlPlaceholderStyle
   readonly lockRows?: boolean                                       // default true
+  readonly dialect?: 'standard' | 'mysql'                           // default 'standard'
   transaction<R>(body: (tx: SqlTx) => Promise<R>): Promise<R>
   read(sql: string, params: unknown[]): Promise<unknown[]>
   run(sql: string, params: unknown[]): Promise<void>
@@ -94,7 +95,8 @@ interface SqlDriver {
 }
 
 interface SqlResilienceStoreOptions {
-  clock?: Clock // inject a FakeClock in tests; defaults to the system clock
+  clock?: Clock   // inject a FakeClock in tests; defaults to the system clock
+  schema?: string // Postgres schema (MySQL: database) holding the tables
 }
 
 new SqlResilienceStore(driver: SqlDriver, opts?: SqlResilienceStoreOptions)
