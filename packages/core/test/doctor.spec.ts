@@ -158,7 +158,12 @@ describe('resilience checks', () => {
       app as unknown as ApplicationService,
       resilienceDoctorChecks(),
     );
-    expect(shallow.report.results.some((r) => r.id === 'resilience.store-reachable')).toBe(false);
+    // Not run without --deep: listed as skipped (agora:doctor 1.1), never asked.
+    expect(
+      shallow.report.results
+        .filter((r) => r.id === 'resilience.store-reachable')
+        .map((r) => r.status),
+    ).toEqual(['skip']);
     const { report, exitCode } = await runAgoraDoctor(
       app as unknown as ApplicationService,
       resilienceDoctorChecks(),
