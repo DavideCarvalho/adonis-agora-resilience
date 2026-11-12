@@ -16,17 +16,24 @@ export interface ExtensionsContainer {
 export function registerTelescopeExtension(
   container: ExtensionsContainer,
   extension: TelescopeExtension,
+  onError: (error: unknown) => void = (error) =>
+    console.warn(
+      `[@adonis-agora/resilience] could not add the ${extension.name} page to telescope:`,
+      error,
+    ),
 ): void {
   if (!container.hasBinding(TELESCOPE_EXTENSIONS_BINDING)) {
     container.bindValue(TELESCOPE_EXTENSIONS_BINDING, [extension]);
     return;
   }
-  void container.make(TELESCOPE_EXTENSIONS_BINDING).then(
-    (list) => {
-      if (!Array.isArray(list)) return;
-      if (list.some((e) => (e as TelescopeExtension | undefined)?.name === extension.name)) return;
-      list.push(extension);
-    },
-    () => {},
-  );
+  void container.make(TELESCOPE_EXTENSIONS_BINDING).then((list) => {
+    if (!Array.isArray(list)) {
+      onError(
+        new Error(`'${TELESCOPE_EXTENSIONS_BINDING}' is bound to something that is not a list`),
+      );
+      return;
+    }
+    if (list.some((e) => (e as TelescopeExtension | undefined)?.name === extension.name)) return;
+    list.push(extension);
+  }, onError);
 }

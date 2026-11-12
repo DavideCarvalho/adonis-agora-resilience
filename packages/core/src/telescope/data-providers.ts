@@ -129,6 +129,8 @@ function circuitRow(c: CircuitInfo, now: number) {
           : new Date(c.openUntil).toISOString(),
     store: c.store,
     scope: c.scope,
+    // Only circuits on a store the page can address get a Reset button.
+    resettable: c.status !== 'closed' && c.store !== '(custom)' ? 'yes' : 'no',
   };
 }
 
@@ -156,6 +158,7 @@ export function resilienceCircuitsProvider(): DataProvider {
           until: '',
           store: '',
           scope: '',
+          resettable: 'no',
         });
       }
       return { rows, total: circuits.length, page, size };
@@ -276,7 +279,10 @@ export function resilienceTransitionsProvider(): DataProvider {
       const windowMs = numberParam(query?.windowMs, 24 * HOUR, 60_000, 7 * 24 * HOUR);
       const limit = numberParam(query?.limit, 50, 1, 500);
       const rows: Record<string, unknown>[] = [];
-      for (const e of await resilienceEntries(ctx, windowMs)) {
+      const entries = [...(await resilienceEntries(ctx, windowMs))].sort(
+        (a, b) => timeOf(b) - timeOf(a),
+      );
+      for (const e of entries) {
         const c = contentOf(e);
         if (!c.event || !TRANSITIONS.has(c.event)) continue;
         const p = c.payload ?? {};

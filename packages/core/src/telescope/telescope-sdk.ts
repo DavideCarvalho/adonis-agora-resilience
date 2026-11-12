@@ -83,7 +83,10 @@ export interface ColumnAction {
   name: string;
   /** Button label. Defaults to the action's label. */
   label?: string;
-  /** Input sent to the action: templates with `{rowKey}` placeholders. */
+  /**
+   * Input sent to the action, as templates: `{field}` is replaced by the row's `field` value
+   * (`{ key: '{key}' }` sends the row's `key`). Same placeholder syntax as {@link LinkSpec.href}.
+   */
   input: Record<string, string>;
   /** Show the button only on rows whose field holds one of these values. */
   showWhen?: Record<string, string[]>;

@@ -40,7 +40,7 @@ export function resilienceDashboard(opts: ResilienceDashboardOptions = {}): Dash
         name: 'resilience.reset-circuit',
         label: 'Reset',
         input: { key: '{key}', store: '{store}' },
-        showWhen: { status: ['open', 'half-open'] },
+        showWhen: { resettable: ['yes'] },
       },
     });
   }

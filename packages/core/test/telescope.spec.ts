@@ -151,6 +151,8 @@ describe('data providers', () => {
       scope: 'process',
     });
     expect(page1.rows[1]?.until).toBe('in 1m');
+    expect(page1.rows[1]?.resettable).toBe('yes');
+    expect(page1.rows[0]?.resettable).toBe('no');
     const page2 = (await provider('resilience.circuits').resolve({ page: 2, size: 2 }, ctx)) as {
       rows: Record<string, unknown>[];
     };
@@ -337,6 +339,15 @@ describe('registration into agora.telescope.extensions', () => {
     )) as TelescopeExtension[];
     expect(list.map((e) => e.name)).toEqual(['durable', 'resilience']);
     expect(list[1]?.actions?.({} as ExtensionContext)).toEqual([]);
+  });
+
+  it('reports a binding that is not a list instead of dropping the page silently', async () => {
+    const a = app({});
+    a.container.bindValue(TELESCOPE_EXTENSIONS_BINDING as never, 'oops' as never);
+    const onError = vi.fn();
+    registerTelescopeExtension(a.container as never, resilienceTelescopeExtension(), onError);
+    await new Promise((r) => setImmediate(r));
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 
   it('adds nothing with telescope: false', () => {

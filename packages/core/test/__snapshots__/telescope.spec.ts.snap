@@ -175,9 +175,8 @@ exports[`dashboard > matches the page spec 1`] = `
                 "label": "Reset",
                 "name": "resilience.reset-circuit",
                 "showWhen": {
-                  "status": [
-                    "open",
-                    "half-open",
+                  "resettable": [
+                    "yes",
                   ],
                 },
               },
