@@ -61,7 +61,7 @@ export default defineConfig({
 // { type: 'executed', policy: 'stripe', ok: false, ms: 2001, attempts: 3, error: { name, message } }
 ```
 
-It is off by default because it is one event per call.
+It is off by default because it is one event per call. With it on, the [Telescope page](/docs/resilience/telescope) shows the error rate of your policies.
 
 ### Which policies get the service's sink
 
@@ -139,7 +139,7 @@ diagnosticsSink({
 </Callout>
 
 <Callout type="info">
-This is how circuit opens / failovers show up in [Telescope](/docs/telescope): resilience emits the events, diagnostics is the bus, and a Telescope watcher records them with `traceId` correlation.
+This is how circuit opens / failovers show up in [Telescope](/docs/telescope): resilience emits the events, diagnostics is the bus, and a Telescope watcher records them with `traceId` correlation. Telescope also gets a [Resilience page](/docs/resilience/telescope).
 </Callout>
 
 ### Typed channels

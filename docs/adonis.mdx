@@ -36,6 +36,7 @@ interface ResilienceConfig {
   policies?: Record<string, () => Policy> // named policies for ResilienceService.execute
   emit?: boolean                          // default: true — emit diagnostics events
   executedEvents?: boolean                // default: false — one `executed` event per named call
+  telescope?: boolean | { reset?: boolean } // default: true — the Telescope Resilience page
   eventEmitter?: EventEmitterLike         // mirror events to an EventEmitter2-style emitter
 }
 ```

@@ -2,6 +2,8 @@ import type { ApplicationService } from '@adonisjs/core/types';
 import type { ResilienceStore } from '../src/breaker/store.js';
 import type { ResilienceConfig } from '../src/define_config.js';
 import { ResilienceService } from '../src/resilience_service.js';
+import { resilienceTelescopeExtension } from '../src/telescope/extension.js';
+import { type ExtensionsContainer, registerTelescopeExtension } from '../src/telescope/register.js';
 
 /**
  * Wires `@adonis-agora/resilience` into the AdonisJS application: binds a singleton
@@ -22,9 +24,26 @@ export default class ResilienceProvider {
   constructor(protected app: ApplicationService) {}
 
   register() {
+    const telescope = this.app.config.get<ResilienceConfig['telescope']>(
+      'resilience.telescope',
+      true,
+    );
+    if (telescope !== false) {
+      registerTelescopeExtension(
+        this.app.container as unknown as ExtensionsContainer,
+        resilienceTelescopeExtension(typeof telescope === 'object' ? telescope : {}),
+      );
+    }
+
     this.app.container.singleton(ResilienceService, async () => {
       const config = this.app.config.get<ResilienceConfig>('resilience', {});
-      const { default: defaultStore, stores: providers, store, ...rest } = config;
+      const {
+        default: defaultStore,
+        stores: providers,
+        store,
+        telescope: _telescope,
+        ...rest
+      } = config;
 
       // Build every configured store thunk once, resolving its (optional) peer dependency.
       const resolved: Record<string, ResilienceStore> = {};
