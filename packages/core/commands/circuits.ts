@@ -35,6 +35,11 @@ export default class ResilienceCircuits extends BaseCommand {
       return;
     }
     const resilience = await this.app.container.make(ResilienceService);
+    if (this.store !== undefined && !resilience.storeNames().includes(this.store)) {
+      this.logger.error(`Unknown resilience store "${this.store}".`);
+      this.exitCode = 1;
+      return;
+    }
     const circuits = await resilience.circuits({
       ...(this.status !== undefined ? { status: this.status as CircuitStatus } : {}),
       ...(this.store !== undefined ? { store: this.store } : {}),

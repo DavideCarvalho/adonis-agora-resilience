@@ -62,6 +62,14 @@ describe('resilience commands', () => {
     expect((await memory.snapshot('stripe')).status).toBe('open');
   });
 
+  it('resilience:circuits refuses an unknown store', async () => {
+    const kernel = await ace();
+    const command = await kernel.create(ResilienceCircuits, ['--store=nope']);
+    await command.exec();
+    command.assertFailed();
+    command.assertLog('[ red(error) ] Unknown resilience store "nope".', 'stderr');
+  });
+
   it('resilience:circuits lists circuits, filters by status and prints JSON', async () => {
     const kernel = await ace();
     const command = await kernel.create(ResilienceCircuits, ['--status=open', '--json']);

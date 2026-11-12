@@ -50,6 +50,13 @@ function str(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
+/** The required circuit `key`, trimmed; throws on a missing or empty one. */
+function requiredKey(input: Record<string, unknown>): string {
+  const key = typeof input.key === 'string' ? input.key.trim() : '';
+  if (key === '') throw new Error('`key` is required: the circuit key');
+  return key;
+}
+
 /** One page of `items` in the `{ items, next }` shape every dev-tools list returns. */
 export function pageOf<T>(items: readonly T[], input: Record<string, unknown>) {
   const size = intOf(input.limit, 20, 100);
@@ -119,8 +126,8 @@ export function resilienceDevTools(resolve: () => Promise<ResilienceService>): D
         required: ['key'],
       },
       async run(input) {
+        const key = requiredKey(input);
         const service = await resolve();
-        const key = String(input.key);
         return {
           circuit: await service.getCircuit(key, str(input.store)),
           recentEvents: service.recentEvents({ key, limit: 10 }),
@@ -199,8 +206,9 @@ export function resilienceDevTools(resolve: () => Promise<ResilienceService>): D
         required: ['key'],
       },
       async run(input, call) {
+        const key = requiredKey(input);
         const named = str(input.store);
-        return (await resolve()).resetCircuit(String(input.key), {
+        return (await resolve()).resetCircuit(key, {
           ...(named ? { store: named } : {}),
           by: call.caller.id,
           via: 'mcp',

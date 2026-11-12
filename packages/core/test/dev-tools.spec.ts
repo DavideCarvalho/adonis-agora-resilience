@@ -131,6 +131,15 @@ describe('resilience dev tools', () => {
     });
   });
 
+  it('rejects a missing or empty key instead of reading or resetting a phantom circuit', async () => {
+    const { tool, logger } = await setup();
+    await expect(tool('resilience_get_circuit').run({}, call)).rejects.toThrow(/`key` is required/);
+    await expect(tool('resilience_reset_circuit').run({ key: '  ' }, call)).rejects.toThrow(
+      /`key` is required/,
+    );
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+
   it('pageOf caps limit at 100 and links the next page', () => {
     const items = Array.from({ length: 250 }, (_, i) => i);
     expect(pageOf(items, {}).items).toHaveLength(20);
