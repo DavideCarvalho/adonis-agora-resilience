@@ -1,20 +1,16 @@
 ---
 name: resilience-custom-stores-testing
 description: >-
-  Choose, build and test circuit-breaker stores for @adonis-agora/resilience.
-  Covers the ResilienceStore contract (admit/record/snapshot/reset, optional
-  keys({ prefix, limit })) with
-  Admission/BreakerConfig/CircuitSnapshot, config-driven stores.memory()/
-  stores.lucid({ connection })/stores.redis({ connection }) in config/resilience.ts
+  Choose, build and test circuit-breaker stores for @adonis-agora/resilience. Covers
+  the ResilienceStore contract (admit/record/snapshot/reset, optional keys),
+  config-driven stores.memory()/stores.lucid({ connection })/stores.redis({ connection })
   where EVERY listed store is built at boot, CIRCUITS_DDL + ensureResilienceSchema +
-  autoCreateSchema:false migrations, lucidResilienceStore(db)/redisResilienceStore(client),
-  custom engines via SqlResilienceStore + SqlDriver or the pure computeAdmit/computeRecord
-  state machine (INITIAL_CIRCUIT_STATE) or StoreProvider thunks, defineConfig({ store }),
-  circuitStore(name?), the snapshot()-lags-cooldown gotcha, atomic half-open probe
-  guarantees, runResilienceStoreContract from @adonis-agora/resilience/testing, and
-  FakeClock for deterministic timeout/backoff/cooldown tests. Use when sharing breaker
-  state across instances, moving off in-memory, writing a custom store, or testing
-  resilience time behavior.
+  autoCreateSchema:false migrations, custom engines via SqlResilienceStore + SqlDriver
+  or computeAdmit/computeRecord, circuitStore(name?), the snapshot()-lags-cooldown
+  gotcha, atomic half-open probes, runResilienceStoreContract from
+  @adonis-agora/resilience/testing, and FakeClock for deterministic time tests. Use
+  when sharing breaker state across instances, writing a custom store, or testing
+  time behavior.
 metadata:
   type: core
   library: '@adonis-agora/resilience'
