@@ -2,7 +2,7 @@ import type { ApplicationService } from '@adonisjs/core/types';
 import type { ResilienceStore } from '../src/breaker/store.js';
 import type { ResilienceConfig } from '../src/define_config.js';
 import { registerDevTools } from '../src/dev_tools/tools.js';
-import { type DoctorApp, registerDoctorChecks } from '../src/doctor/agora_doctor.js';
+import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
 import { resilienceDoctorChecks } from '../src/doctor/checks.js';
 import { ResilienceService } from '../src/resilience_service.js';
 import { resilienceTelescopeExtension } from '../src/telescope/extension.js';
@@ -27,7 +27,7 @@ export default class ResilienceProvider {
   constructor(protected app: ApplicationService) {}
 
   register() {
-    registerDoctorChecks(this.app as unknown as DoctorApp, resilienceDoctorChecks());
+    void registerDoctorChecks(this.app.container as never, resilienceDoctorChecks());
 
     const telescope = this.app.config.get<ResilienceConfig['telescope']>(
       'resilience.telescope',

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "tsBuildInfoFile": ".commands.tsbuildinfo"
+  },
+  "include": ["commands/**/*.ts"],
+  "exclude": ["**/*.spec.ts", "**/*.test.ts", "test/**", "dist/**"]
+}

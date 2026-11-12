@@ -11,7 +11,7 @@ node ace agora:doctor                  # every lib
 node ace resilience:doctor             # resilience only
 node ace agora:doctor --deep           # also ask Redis / the database
 node ace agora:doctor --json --strict  # in CI: one JSON object, fail on warnings too
-node ace agora:doctor --no-boot        # the app does not boot: peer and version checks only
+node ace agora:doctor --no-boot        # the app does not boot: config checks without booting
 ```
 
 | Flag | |
@@ -22,7 +22,7 @@ node ace agora:doctor --no-boot        # the app does not boot: peer and version
 | `--json` | one JSON object on stdout |
 | `--strict` | warnings fail too |
 | `--verbose` | show skipped checks |
-| `--no-boot` | do not boot the app (for when booting is what fails) |
+| `--no-boot` | do not boot the app (for when booting is what fails); runs the checks that only read config |
 
 Exit code: `0` no error, `1` at least one error (or a warning with `--strict`), `2` the doctor could not run.
 
@@ -37,7 +37,7 @@ Add it to CI after the build:
 | Id | What it checks | Status |
 | --- | --- | --- |
 | `resilience.peers` | `@adonisjs/core`, and Redis / Lucid when installed, are in the supported range | error |
-| `resilience.agora-siblings` | every `@adonis-agora` lib is on the same release | warn |
+| `resilience.agora-siblings` | no 0.x and 1.x `@adonis-agora` libs mixed | warn |
 | `resilience.store` | `default` names a configured store; in production, the default store is not the in-memory one | error / warn |
 | `resilience.policies` | every named policy builds (a misspelled store name shows up here) | error |
 | `resilience.limits-scope` | in production, bulkheads and rate limiters are not on the in-memory store (they would limit per process) | warn |

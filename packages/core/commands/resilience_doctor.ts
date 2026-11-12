@@ -4,5 +4,5 @@ import AgoraDoctor from './agora_doctor.js';
 export default class ResilienceDoctor extends AgoraDoctor {
   static override commandName = 'resilience:doctor';
   static override description = 'Check the @adonis-agora/resilience configuration';
-  protected override presetLibs = ['resilience'];
+  protected override presetLib: string | undefined = 'resilience';
 }

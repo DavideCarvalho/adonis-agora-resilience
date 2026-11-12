@@ -7,7 +7,17 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/dist", "!**/node_modules", "!**/.turbo", "!**/coverage", "!**/*.stub"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!**/.turbo",
+      "!**/coverage",
+      "!**/*.stub",
+      "!**/src/doctor/agora_doctor.ts",
+      "!**/commands/agora_doctor.ts",
+      "!scripts/check-agora-doctor.mjs"
+    ]
   },
   "formatter": {
     "enabled": true,
