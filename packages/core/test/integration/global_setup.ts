@@ -1,48 +1,91 @@
 import { execFileSync } from 'node:child_process';
 
 /**
- * One Postgres for the whole integration run, through the docker CLI, handed to the spec files in
- * `RESILIENCE_TEST_PG_URL`. Set that variable yourself to use a server you already run.
+ * One Postgres and one MySQL for the whole integration run, through the docker CLI, handed to the
+ * spec files in `RESILIENCE_TEST_PG_URL` / `RESILIENCE_TEST_MYSQL_URL`. Set those yourself to use
+ * servers you already run (the MySQL URL names the default database, e.g. `/resilience`).
  */
-let container: string | undefined;
+const containers: string[] = [];
 
-export async function setup(): Promise<void> {
-  if (process.env.RESILIENCE_TEST_PG_URL) return;
-  container = execFileSync('docker', [
-    'run',
-    '-d',
-    '--rm',
-    '-p',
-    '127.0.0.1::5432',
-    '-e',
-    'POSTGRES_PASSWORD=resilience',
-    'postgres:17-alpine',
-  ])
+function start(args: string[], port: string): { id: string; port: string } {
+  const id = execFileSync('docker', ['run', '-d', '--rm', '-p', `127.0.0.1::${port}`, ...args])
     .toString()
     .trim();
-  const port = execFileSync('docker', ['port', container, '5432/tcp'])
+  containers.push(id);
+  const mapped = execFileSync('docker', ['port', id, `${port}/tcp`])
     .toString()
     .trim()
     .split('\n')[0]
     ?.split(':')
     .pop();
-  const deadline = Date.now() + 90_000;
+  return { id, port: mapped as string };
+}
+
+async function waitFor(check: () => void, what: string, ms: number): Promise<void> {
+  const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     try {
-      execFileSync(
-        'docker',
-        ['exec', container, 'psql', '-U', 'postgres', '-h', '127.0.0.1', '-c', 'SELECT 1'],
-        { stdio: 'ignore' },
-      );
-      process.env.RESILIENCE_TEST_PG_URL = `postgres://postgres:resilience@127.0.0.1:${port}/postgres`;
+      check();
       return;
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
-  throw new Error('Postgres did not start');
+  throw new Error(`${what} did not start`);
+}
+
+async function startPostgres(): Promise<string> {
+  const pg = start(['-e', 'POSTGRES_PASSWORD=resilience', 'postgres:17-alpine'], '5432');
+  await waitFor(
+    () =>
+      execFileSync(
+        'docker',
+        ['exec', pg.id, 'psql', '-U', 'postgres', '-h', '127.0.0.1', '-c', 'SELECT 1'],
+        { stdio: 'ignore' },
+      ),
+    'Postgres',
+    90_000,
+  );
+  return `postgres://postgres:resilience@127.0.0.1:${pg.port}/postgres`;
+}
+
+async function startMysql(): Promise<string> {
+  const mysql = start(
+    ['-e', 'MYSQL_ROOT_PASSWORD=resilience', '-e', 'MYSQL_DATABASE=resilience', 'mysql:8.4'],
+    '3306',
+  );
+  await waitFor(
+    () =>
+      execFileSync(
+        'docker',
+        [
+          'exec',
+          mysql.id,
+          'mysql',
+          '-uroot',
+          '-presilience',
+          '-h127.0.0.1',
+          '-Dresilience',
+          '-e',
+          'SELECT 1',
+        ],
+        { stdio: 'ignore' },
+      ),
+    'MySQL',
+    180_000,
+  );
+  return `mysql://root:resilience@127.0.0.1:${mysql.port}/resilience`;
+}
+
+export async function setup(): Promise<void> {
+  const [pg, mysql] = await Promise.all([
+    process.env.RESILIENCE_TEST_PG_URL ?? startPostgres(),
+    process.env.RESILIENCE_TEST_MYSQL_URL ?? startMysql(),
+  ]);
+  process.env.RESILIENCE_TEST_PG_URL = pg;
+  process.env.RESILIENCE_TEST_MYSQL_URL = mysql;
 }
 
 export async function teardown(): Promise<void> {
-  if (container) execFileSync('docker', ['stop', container], { stdio: 'ignore' });
+  for (const id of containers) execFileSync('docker', ['stop', id], { stdio: 'ignore' });
 }

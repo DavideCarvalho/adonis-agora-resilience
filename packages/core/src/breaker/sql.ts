@@ -28,10 +28,22 @@ import type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from '.
 export type SqlPlaceholderStyle = 'numbered' | 'positional';
 
 /**
- * How the dialect quotes identifiers: `"name"` (Postgres, SQLite, ANSI) or `` `name` `` (MySQL).
- * Only used when the store is given a `schema`; without one, table names are written bare.
+ * SQL flavour of the database:
+ * - `standard`: Postgres and SQLite (`"name"` identifiers, `ON CONFLICT … DO NOTHING`).
+ * - `mysql`: MySQL/MariaDB (`` `name` `` identifiers, `ON DUPLICATE KEY UPDATE`, bounded `VARCHAR`
+ *   keys with a binary collation, since a `TEXT` column cannot be a primary key there).
  */
-export type SqlIdentifierQuote = 'double' | 'backtick';
+export type SqlDialect = 'standard' | 'mysql';
+
+/**
+ * Longest key the MySQL tables hold (`VARCHAR(512)`, binary collation). Postgres and SQLite keys are
+ * `TEXT` and unbounded. 512 utf8mb4 characters plus the 64-character lease id fit InnoDB's 3072-byte
+ * index limit.
+ */
+export const MYSQL_KEY_LENGTH = 512;
+
+/** A MySQL key column: bounded, and binary-collated so keys compare exactly (case and accents). */
+const MYSQL_KEY = `VARCHAR(${MYSQL_KEY_LENGTH}) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`;
 
 /** The physical names of the store's tables, already quoted and schema-qualified when needed. */
 export interface ResilienceTableNames {
@@ -40,7 +52,7 @@ export interface ResilienceTableNames {
   rateLimits: string;
 }
 
-/** Options shared by the DDL helpers and the store: where the tables live. */
+/** Options shared by the DDL helpers and the store: the dialect, and where the tables live. */
 export interface ResilienceSchemaOptions {
   /**
    * Database schema (Postgres) or database (MySQL) holding the tables. Every statement names it, so
@@ -48,8 +60,8 @@ export interface ResilienceSchemaOptions {
    * schema).
    */
   schema?: string | undefined;
-  /** Identifier quoting of the dialect. Default `double`; the Lucid store picks it from the dialect. */
-  quote?: SqlIdentifierQuote | undefined;
+  /** SQL flavour. Default `standard`; the Lucid store picks it from the connection. */
+  dialect?: SqlDialect | undefined;
 }
 
 const SCHEMA_NAME = /^[A-Za-z_][A-Za-z0-9_$]*$/;
@@ -65,8 +77,8 @@ export function assertSchemaName(schema: string): void {
 }
 
 /** Quote one identifier for the dialect. */
-export function quoteIdentifier(name: string, quote: SqlIdentifierQuote = 'double'): string {
-  return quote === 'backtick'
+export function quoteIdentifier(name: string, dialect: SqlDialect = 'standard'): string {
+  return dialect === 'mysql'
     ? `\`${name.replaceAll('`', '``')}\``
     : `"${name.replaceAll('"', '""')}"`;
 }
@@ -76,7 +88,7 @@ export function quoteIdentifier(name: string, quote: SqlIdentifierQuote = 'doubl
  * part quoted on its own, so the result is a qualified name and never one quoted `"schema.table"`).
  */
 export function resilienceTableNames(opts: ResilienceSchemaOptions = {}): ResilienceTableNames {
-  const { schema, quote } = opts;
+  const { schema, dialect } = opts;
   if (schema === undefined) {
     return {
       circuits: 'resilience_circuits',
@@ -85,7 +97,8 @@ export function resilienceTableNames(opts: ResilienceSchemaOptions = {}): Resili
     };
   }
   assertSchemaName(schema);
-  const q = (table: string) => `${quoteIdentifier(schema, quote)}.${quoteIdentifier(table, quote)}`;
+  const q = (table: string) =>
+    `${quoteIdentifier(schema, dialect)}.${quoteIdentifier(table, dialect)}`;
   return {
     circuits: q('resilience_circuits'),
     bulkheadLeases: q('resilience_bulkhead_leases'),
@@ -93,10 +106,21 @@ export function resilienceTableNames(opts: ResilienceSchemaOptions = {}): Resili
   };
 }
 
-/** DDL for the circuits table — idempotent, placeholder-free, identical across dialects. */
+/** DDL for the circuits table — idempotent and placeholder-free. */
 export function circuitsDdl(opts: ResilienceSchemaOptions = {}): string {
+  const table = resilienceTableNames(opts).circuits;
+  if (opts.dialect === 'mysql') {
+    return `
+CREATE TABLE IF NOT EXISTS ${table} (
+  \`key\`      ${MYSQL_KEY} PRIMARY KEY,
+  status     VARCHAR(16) NOT NULL DEFAULT 'closed',
+  failures   INTEGER NOT NULL DEFAULT 0,
+  open_until BIGINT  NOT NULL DEFAULT 0,
+  probes     INTEGER NOT NULL DEFAULT 0
+);`;
+  }
   return `
-CREATE TABLE IF NOT EXISTS ${resilienceTableNames(opts).circuits} (
+CREATE TABLE IF NOT EXISTS ${table} (
   key        TEXT PRIMARY KEY,
   status     TEXT    NOT NULL DEFAULT 'closed',
   failures   INTEGER NOT NULL DEFAULT 0,
@@ -110,8 +134,18 @@ CREATE TABLE IF NOT EXISTS ${resilienceTableNames(opts).circuits} (
  * that acquirers lock to serialise the count-then-insert. Idempotent.
  */
 export function bulkheadsDdl(opts: ResilienceSchemaOptions = {}): string {
+  const table = resilienceTableNames(opts).bulkheadLeases;
+  if (opts.dialect === 'mysql') {
+    return `
+CREATE TABLE IF NOT EXISTS ${table} (
+  \`key\`      ${MYSQL_KEY} NOT NULL,
+  lease_id   VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  expires_at BIGINT NOT NULL,
+  PRIMARY KEY (\`key\`, lease_id)
+);`;
+  }
   return `
-CREATE TABLE IF NOT EXISTS ${resilienceTableNames(opts).bulkheadLeases} (
+CREATE TABLE IF NOT EXISTS ${table} (
   key        TEXT   NOT NULL,
   lease_id   TEXT   NOT NULL,
   expires_at BIGINT NOT NULL,
@@ -121,9 +155,11 @@ CREATE TABLE IF NOT EXISTS ${resilienceTableNames(opts).bulkheadLeases} (
 
 /** DDL for the rate-limiter buckets: tokens left and when they were last counted. Idempotent. */
 export function rateLimitsDdl(opts: ResilienceSchemaOptions = {}): string {
+  const table = resilienceTableNames(opts).rateLimits;
+  const key = opts.dialect === 'mysql' ? `\`key\`      ${MYSQL_KEY}` : 'key        TEXT';
   return `
-CREATE TABLE IF NOT EXISTS ${resilienceTableNames(opts).rateLimits} (
-  key        TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS ${table} (
+  ${key} PRIMARY KEY,
   tokens     DOUBLE PRECISION NOT NULL,
   updated_at BIGINT NOT NULL,
   expires_at BIGINT NOT NULL
@@ -133,17 +169,17 @@ CREATE TABLE IF NOT EXISTS ${resilienceTableNames(opts).rateLimits} (
 /**
  * Every table the SQL stores use (circuits, bulkhead slots, rate-limiter buckets). With a `schema`,
  * the list starts with the statement that creates it (`CREATE SCHEMA IF NOT EXISTS`, or
- * `CREATE DATABASE IF NOT EXISTS` with backtick quoting, i.e. MySQL).
+ * `CREATE DATABASE IF NOT EXISTS` on MySQL).
  */
 export function resilienceDdl(opts: ResilienceSchemaOptions = {}): string[] {
   const tables = [circuitsDdl(opts), bulkheadsDdl(opts), rateLimitsDdl(opts)];
   if (opts.schema === undefined) return tables;
-  return [createSchemaSql(opts.schema, opts.quote), ...tables];
+  return [createSchemaSql(opts.schema, opts.dialect), ...tables];
 }
 
-function createSchemaSql(schema: string, quote: SqlIdentifierQuote = 'double'): string {
-  const kind = quote === 'backtick' ? 'DATABASE' : 'SCHEMA';
-  return `CREATE ${kind} IF NOT EXISTS ${quoteIdentifier(schema, quote)}`;
+function createSchemaSql(schema: string, dialect: SqlDialect = 'standard'): string {
+  const kind = dialect === 'mysql' ? 'DATABASE' : 'SCHEMA';
+  return `CREATE ${kind} IF NOT EXISTS ${quoteIdentifier(schema, dialect)}`;
 }
 
 /** DDL for the circuits table in the current schema. See {@link circuitsDdl} for another schema. */
@@ -175,63 +211,82 @@ interface LimitStatements {
   listBucketKeys: (limit: number) => string;
 }
 
+/**
+ * The dialect's pieces of the statements: the `key` column (reserved on MySQL) and the clause that
+ * turns an INSERT of an existing primary key into a no-op.
+ */
+function sqlParts(dialect: SqlDialect, conflictColumns: string) {
+  const key = dialect === 'mysql' ? '`key`' : 'key';
+  return {
+    key,
+    ignoreDuplicate:
+      dialect === 'mysql'
+        ? `ON DUPLICATE KEY UPDATE ${key} = ${key}`
+        : `ON CONFLICT (${conflictColumns}) DO NOTHING`,
+  };
+}
+
 function limitStatements(
   style: SqlPlaceholderStyle,
   lockRows: boolean,
   t: ResilienceTableNames,
+  dialect: SqlDialect,
 ): LimitStatements {
   const p = style === 'numbered' ? (n: number) => `$${n}` : () => '?';
   const forUpdate = lockRows ? '\nFOR UPDATE' : '';
+  const { key } = sqlParts(dialect, 'key');
+  const leaseConflict = sqlParts(dialect, 'key, lease_id').ignoreDuplicate;
+  const bucketConflict = sqlParts(dialect, 'key').ignoreDuplicate;
   return {
     insertAnchor: `
-INSERT INTO ${t.bulkheadLeases} (key, lease_id, expires_at)
+INSERT INTO ${t.bulkheadLeases} (${key}, lease_id, expires_at)
 VALUES (${p(1)}, '', 0)
-ON CONFLICT (key, lease_id) DO NOTHING;`,
+${leaseConflict};`,
     lockAnchor: `
-SELECT key FROM ${t.bulkheadLeases}
-WHERE key = ${p(1)} AND lease_id = ''${forUpdate};`,
+SELECT ${key} FROM ${t.bulkheadLeases}
+WHERE ${key} = ${p(1)} AND lease_id = ''${forUpdate};`,
     deleteExpired: `
 DELETE FROM ${t.bulkheadLeases}
-WHERE key = ${p(1)} AND lease_id <> '' AND expires_at <= ${p(2)};`,
+WHERE ${key} = ${p(1)} AND lease_id <> '' AND expires_at <= ${p(2)};`,
     countLeases: `
 SELECT COUNT(*) AS n FROM ${t.bulkheadLeases}
-WHERE key = ${p(1)} AND lease_id <> '' AND expires_at > ${p(2)};`,
+WHERE ${key} = ${p(1)} AND lease_id <> '' AND expires_at > ${p(2)};`,
     insertLease: `
-INSERT INTO ${t.bulkheadLeases} (key, lease_id, expires_at)
+INSERT INTO ${t.bulkheadLeases} (${key}, lease_id, expires_at)
 VALUES (${p(1)}, ${p(2)}, ${p(3)});`,
     deleteLease: `
 DELETE FROM ${t.bulkheadLeases}
-WHERE key = ${p(1)} AND lease_id = ${p(2)};`,
+WHERE ${key} = ${p(1)} AND lease_id = ${p(2)};`,
     deleteBulkhead: `
 DELETE FROM ${t.bulkheadLeases}
-WHERE key = ${p(1)};`,
+WHERE ${key} = ${p(1)};`,
     listBulkheadKeys: (limit) => `
-SELECT DISTINCT key FROM ${t.bulkheadLeases}
-WHERE key LIKE ${p(1)} ESCAPE '!' AND lease_id <> '' AND expires_at > ${p(2)}
-ORDER BY key
+SELECT DISTINCT ${key} FROM ${t.bulkheadLeases}
+WHERE ${key} LIKE ${p(1)} ESCAPE '!' AND lease_id <> '' AND expires_at > ${p(2)}
+ORDER BY ${key}
 LIMIT ${limit};`,
     // A new bucket is written with tokens = -1, read back as "never used" (full).
     insertBucket: `
-INSERT INTO ${t.rateLimits} (key, tokens, updated_at, expires_at)
+INSERT INTO ${t.rateLimits} (${key}, tokens, updated_at, expires_at)
 VALUES (${p(1)}, -1, 0, 0)
-ON CONFLICT (key) DO NOTHING;`,
+${bucketConflict};`,
     lockBucket: `
 SELECT tokens, updated_at, expires_at FROM ${t.rateLimits}
-WHERE key = ${p(1)}${forUpdate};`,
+WHERE ${key} = ${p(1)}${forUpdate};`,
     readBucket: `
 SELECT tokens, updated_at, expires_at FROM ${t.rateLimits}
-WHERE key = ${p(1)};`,
+WHERE ${key} = ${p(1)};`,
     updateBucket: `
 UPDATE ${t.rateLimits}
 SET tokens = ${p(1)}, updated_at = ${p(2)}, expires_at = ${p(3)}
-WHERE key = ${p(4)};`,
+WHERE ${key} = ${p(4)};`,
     deleteBucket: `
 DELETE FROM ${t.rateLimits}
-WHERE key = ${p(1)};`,
+WHERE ${key} = ${p(1)};`,
     listBucketKeys: (limit) => `
-SELECT key FROM ${t.rateLimits}
-WHERE key LIKE ${p(1)} ESCAPE '!' AND expires_at > ${p(2)}
-ORDER BY key
+SELECT ${key} FROM ${t.rateLimits}
+WHERE ${key} LIKE ${p(1)} ESCAPE '!' AND expires_at > ${p(2)}
+ORDER BY ${key}
 LIMIT ${limit};`,
   };
 }
@@ -270,47 +325,49 @@ function statements(
   style: SqlPlaceholderStyle,
   lockRows: boolean,
   t: ResilienceTableNames,
+  dialect: SqlDialect,
 ): SqlStatements {
   const p = style === 'numbered' ? (n: number) => `$${n}` : () => '?';
   const forUpdate = lockRows ? '\nFOR UPDATE' : '';
+  const { key, ignoreDuplicate } = sqlParts(dialect, 'key');
   return {
     // Ensure the row exists (no-op if already present).
     insertInitial: `
-INSERT INTO ${t.circuits} (key, status, failures, open_until, probes)
+INSERT INTO ${t.circuits} (${key}, status, failures, open_until, probes)
 VALUES (${p(1)}, 'closed', 0, 0, 0)
-ON CONFLICT (key) DO NOTHING;`,
+${ignoreDuplicate};`,
     // Pessimistic read — must run inside the same transaction as insertInitial. The `FOR UPDATE`
     // row lock is included only when the dialect supports it (see `lockRows`); on a single-writer
     // dialect like SQLite, transaction-level write serialisation preserves the same atomicity.
     selectForUpdate: `
 SELECT status, failures, open_until, probes
 FROM ${t.circuits}
-WHERE key = ${p(1)}${forUpdate};`,
+WHERE ${key} = ${p(1)}${forUpdate};`,
     // Non-locking read for snapshot().
     selectPlain: `
 SELECT status, failures, open_until, probes
 FROM ${t.circuits}
-WHERE key = ${p(1)};`,
+WHERE ${key} = ${p(1)};`,
     // Persist the new state. Parameters: status, failures, open_until, probes, key.
     updateState: `
 UPDATE ${t.circuits}
 SET status = ${p(1)}, failures = ${p(2)}, open_until = ${p(3)}, probes = ${p(4)}
-WHERE key = ${p(5)};`,
+WHERE ${key} = ${p(5)};`,
     // Close after a success, matching no row when the circuit is already clean (or absent), so the
     // steady closed state is never rewritten. `probes` is left untouched, as in computeRecord.
     closeIfDirty: `
 UPDATE ${t.circuits}
 SET status = 'closed', failures = 0, open_until = 0
-WHERE key = ${p(1)} AND (status <> 'closed' OR failures <> 0 OR open_until <> 0);`,
+WHERE ${key} = ${p(1)} AND (status <> 'closed' OR failures <> 0 OR open_until <> 0);`,
     // Clear a circuit back to its initial state (reset()). A missing row is a no-op.
     deleteRow: `
 DELETE FROM ${t.circuits}
-WHERE key = ${p(1)};`,
+WHERE ${key} = ${p(1)};`,
     // List keys by prefix (LIKE with an explicit escape character). `limit` is a validated integer.
     listKeys: (limit) => `
-SELECT key FROM ${t.circuits}
-WHERE key LIKE ${p(1)} ESCAPE '!'
-ORDER BY key
+SELECT ${key} FROM ${t.circuits}
+WHERE ${key} LIKE ${p(1)} ESCAPE '!'
+ORDER BY ${key}
 LIMIT ${limit};`,
   };
 }
@@ -370,10 +427,10 @@ export interface SqlDriver {
   /** Run a DDL statement (no parameters). */
   exec(sql: string): Promise<void>;
   /**
-   * How the dialect quotes identifiers, used to qualify table names when the store has a `schema`.
-   * Defaults to `double` (`"schema"."table"`); MySQL drivers set `backtick`.
+   * SQL flavour of the database. Defaults to `standard` (Postgres, SQLite); MySQL/MariaDB drivers set
+   * `mysql`, which changes identifier quoting, upserts and the key column types.
    */
-  readonly identifierQuote?: SqlIdentifierQuote;
+  readonly dialect?: SqlDialect;
 }
 
 export interface SqlResilienceStoreOptions {
@@ -430,9 +487,10 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
   ) {
     if (opts.schema !== undefined) assertSchemaName(opts.schema);
     this.schema = opts.schema;
-    const tables = resilienceTableNames({ schema: opts.schema, quote: driver.identifierQuote });
-    this.stmts = statements(driver.placeholders, driver.lockRows ?? true, tables);
-    this.limits = limitStatements(driver.placeholders, driver.lockRows ?? true, tables);
+    const dialect = driver.dialect ?? 'standard';
+    const tables = resilienceTableNames({ schema: opts.schema, dialect });
+    this.stmts = statements(driver.placeholders, driver.lockRows ?? true, tables, dialect);
+    this.limits = limitStatements(driver.placeholders, driver.lockRows ?? true, tables, dialect);
     this.clock = opts.clock ?? systemClock;
   }
 
@@ -445,15 +503,15 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
    * `schema`, the schema is created first when it does not exist yet.
    */
   async ensureSchema(): Promise<void> {
-    const opts = { schema: this.schema, quote: this.driver.identifierQuote };
+    const opts = { schema: this.schema, dialect: this.driver.dialect };
     if (this.schema !== undefined && !(await this.schemaExists())) {
-      const create = createSchemaSql(this.schema, this.driver.identifierQuote);
+      const create = createSchemaSql(this.schema, this.driver.dialect);
       try {
         await this.driver.exec(create);
       } catch (error) {
         // Another process may have created it between the check and the CREATE.
         if (await this.schemaExists().catch(() => false)) return this.ensureSchema();
-        const database = this.driver.identifierQuote === 'backtick';
+        const database = this.driver.dialect === 'mysql';
         throw new Error(
           `@adonis-agora/resilience: could not create the ${database ? 'database' : 'schema'} ` +
             `"${this.schema}" (${error instanceof Error ? error.message : String(error)}). ` +

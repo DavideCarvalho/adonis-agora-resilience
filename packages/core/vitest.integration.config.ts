@@ -2,7 +2,7 @@ import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
 /**
- * Integration suite: the Lucid store against a real Postgres (docker). Split from
+ * Integration suite: the Lucid store against a real Postgres and MySQL 8 (docker). Split from
  * `vitest.config.ts` so `pnpm test` stays fast and runs without Docker.
  */
 export default defineConfig({

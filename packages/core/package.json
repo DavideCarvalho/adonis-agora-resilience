@@ -117,6 +117,7 @@
     "ioredis": "6.0.0",
     "ioredis-mock": "8.13.1",
     "luxon": "3.7.2",
+    "mysql2": "3.24.6",
     "pg": "8.23.1",
     "typescript": "7.0.2",
     "vitest": "5.1.0"

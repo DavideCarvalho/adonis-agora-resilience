@@ -2,8 +2,8 @@ import {
   assertSchemaName,
   type ResilienceSchemaOptions,
   resilienceDdl,
+  type SqlDialect,
   type SqlDriver,
-  type SqlIdentifierQuote,
   SqlResilienceStore,
   type SqlResilienceStoreOptions,
   type SqlTx,
@@ -56,8 +56,8 @@ function detectDialect(
   }
 }
 
-function identifierQuoteOf(dialect: string | undefined): SqlIdentifierQuote {
-  return dialect !== undefined && /mysql|maria/i.test(dialect) ? 'backtick' : 'double';
+function sqlDialectOf(dialect: string | undefined): SqlDialect {
+  return dialect !== undefined && /mysql|maria/i.test(dialect) ? 'mysql' : 'standard';
 }
 
 /**
@@ -87,7 +87,13 @@ function assertSchemaSupported(schema: string | undefined, dialect: string | und
  * columns, so an unexpected shape here means a driver change, not a schema mismatch.
  */
 function toRows(result: unknown): unknown[] {
-  if (Array.isArray(result)) return result;
+  if (Array.isArray(result)) {
+    // mysql2 answers `[rows, fields]`; better-sqlite3 answers the rows themselves.
+    if (result.length === 2 && Array.isArray(result[0]) && Array.isArray(result[1])) {
+      return result[0];
+    }
+    return result;
+  }
   if (result && typeof result === 'object' && 'rows' in result) {
     const rows = (result as { rows: unknown }).rows;
     return Array.isArray(rows) ? rows : [];
@@ -106,7 +112,7 @@ function toRows(result: unknown): unknown[] {
 function lucidDriver(
   db: LucidDatabase,
   supportsForUpdate: boolean,
-  identifierQuote: SqlIdentifierQuote,
+  dialect: SqlDialect,
 ): SqlDriver {
   const tx = (client: LucidQueryClient): SqlTx => ({
     run: async (sql, params) => {
@@ -118,7 +124,7 @@ function lucidDriver(
   return {
     placeholders: 'positional',
     lockRows: supportsForUpdate,
-    identifierQuote,
+    dialect,
     transaction: (body) => db.transaction((trx) => body(tx(trx))),
     read: async (sql, params) => toRows(await db.rawQuery(sql, params)),
     run: async (sql, params) => {
@@ -160,7 +166,7 @@ export class LucidResilienceStore extends SqlResilienceStore {
     const dialect = detectDialect(db);
     assertSchemaSupported(opts.schema, dialect);
     const supportsForUpdate = opts.useRowLocks ?? dialectSupportsForUpdate(dialect);
-    super(lucidDriver(db, supportsForUpdate, identifierQuoteOf(dialect)), opts);
+    super(lucidDriver(db, supportsForUpdate, sqlDialectOf(dialect)), opts);
     this.autoCreateSchema = opts.autoCreateSchema ?? true;
   }
 
@@ -271,7 +277,7 @@ export async function ensureResilienceSchema(
 ): Promise<void> {
   const dialect = detectDialect(db);
   assertSchemaSupported(opts.schema, dialect);
-  for (const ddl of resilienceDdl({ schema: opts.schema, quote: identifierQuoteOf(dialect) })) {
+  for (const ddl of resilienceDdl({ schema: opts.schema, dialect: sqlDialectOf(dialect) })) {
     await db.rawQuery(ddl);
   }
 }
