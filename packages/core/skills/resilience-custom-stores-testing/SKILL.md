@@ -1,16 +1,17 @@
 ---
 name: resilience-custom-stores-testing
 description: >-
-  Choose, build and test circuit-breaker stores for @adonis-agora/resilience. Covers
-  the ResilienceStore contract (admit/record/snapshot/reset, optional keys),
-  config-driven stores.memory()/stores.lucid({ connection })/stores.redis({ connection })
-  where EVERY listed store is built at boot, CIRCUITS_DDL + ensureResilienceSchema +
-  autoCreateSchema:false migrations, custom engines via SqlResilienceStore + SqlDriver
-  or computeAdmit/computeRecord, circuitStore(name?), the snapshot()-lags-cooldown
-  gotcha, atomic half-open probes, runResilienceStoreContract from
-  @adonis-agora/resilience/testing, and FakeClock for deterministic time tests. Use
-  when sharing breaker state across instances, writing a custom store, or testing
-  time behavior.
+  Choose, build and test stores for @adonis-agora/resilience (circuits, bulkhead
+  slots, rate-limiter buckets). Covers the ResilienceStore contract
+  (admit/record/snapshot/reset, optional keys), config-driven stores.memory()/
+  stores.lucid({ connection })/stores.redis({ connection }) where EVERY listed store
+  is built at boot, RESILIENCE_DDL (circuits, bulkhead leases, rate limits) +
+  ensureResilienceSchema + autoCreateSchema:false migrations, custom engines via
+  SqlResilienceStore + SqlDriver or computeAdmit/computeRecord, circuitStore(name?),
+  the snapshot()-lags-cooldown gotcha, atomic half-open probes, the store contracts
+  in @adonis-agora/resilience/testing, and FakeClock for deterministic time tests.
+  Use when sharing state across instances, writing a custom store, or testing time
+  behavior.
 metadata:
   type: core
   library: '@adonis-agora/resilience'
@@ -38,7 +39,7 @@ interface ResilienceStore {
   record(key: string, cfg: BreakerConfig, ok: boolean, probe: boolean): Promise<CircuitStatus>
   snapshot(key: string): Promise<CircuitSnapshot>              // read-only inspect
   reset(key: string): Promise<void>                            // back to closed
-  keys?(opts: KeysQuery): Promise<string[]>                    // optional listing for circuits()
+  keys?(opts: KeysQuery): Promise<string[]>                    // optional, for listings
 }
 ```
 
@@ -99,7 +100,7 @@ Source: `docs/stores.mdx § "Distributed stores"`.
 
 ### Pattern 2 — own the schema with a migration
 
-Auto-create (`CREATE TABLE IF NOT EXISTS`, via `CIRCUITS_DDL`) is convenient for
+Auto-create (`CREATE TABLE IF NOT EXISTS`, via `RESILIENCE_DDL`) is convenient for
 getting started; in production disable it and run the DDL from a migration so
 you get a `down()`:
 
@@ -116,9 +117,25 @@ export default class extends BaseSchema {
       table.bigInteger('open_until').notNullable().defaultTo(0)
       table.integer('probes').notNullable().defaultTo(0)
     })
+
+    // only needed when you use bulkhead() / rateLimiter() on this store
+    this.schema.createTable('resilience_bulkhead_leases', (table) => {
+      table.text('key').notNullable()
+      table.text('lease_id').notNullable()
+      table.bigInteger('expires_at').notNullable()
+      table.primary(['key', 'lease_id'])
+    })
+    this.schema.createTable('resilience_rate_limits', (table) => {
+      table.text('key').primary()
+      table.double('tokens').notNullable()
+      table.bigInteger('updated_at').notNullable()
+      table.bigInteger('expires_at').notNullable()
+    })
   }
 
   async down() {
+    this.schema.dropTable('resilience_rate_limits')
+    this.schema.dropTable('resilience_bulkhead_leases')
     this.schema.dropTable('resilience_circuits')
   }
 }
@@ -133,7 +150,10 @@ export default defineConfig({
 ```
 
 For tests/scripts, `ensureResilienceSchema(db)` runs the idempotent DDL against
-any client with a `rawQuery` method — including a transaction client.
+any client with a `rawQuery` method — including a transaction client. With
+`autoCreateSchema: false`, bulkheads and rate limiters need their tables too —
+create `resilience_bulkhead_leases` and `resilience_rate_limits` in the same
+migration (`BULKHEADS_DDL` / `RATE_LIMITS_DDL`, together `RESILIENCE_DDL`).
 
 Source: `docs/stores.mdx § "Lucid: migration over auto-create"`,
 `packages/core/src/stores/lucid.ts`.
@@ -165,7 +185,7 @@ const driver: SqlDriver = {
 }
 
 const store = new SqlResilienceStore(driver)
-await store.ensureSchema() // runs CIRCUITS_DDL
+await store.ensureSchema() // runs RESILIENCE_DDL
 ```
 
 Tier 2 — non-SQL engine with JS-level atomicity: drive the pure state machine
@@ -224,8 +244,10 @@ Source: `docs/custom-store.mdx` (all tiers + "Wiring it in"),
 
 Every custom store must pass the same suite the built-ins do; it registers a
 Vitest `describe` block covering the transition table and the invariant that N
-concurrent `admit` calls in half-open yield exactly one probe. The factory
-receives a `Clock` the suite controls — thread it into your store:
+concurrent `admit` calls in half-open yield exactly one probe. Bulkhead and
+rate-limiter backends pass `runBulkheadStoreContract` / `runRateLimitStoreContract`
+instead (same `(clock) => store` shape). The factory receives a `Clock` the
+suite controls — thread it into your store:
 
 ```ts
 // my-store.contract.spec.ts
@@ -233,6 +255,14 @@ import { runResilienceStoreContract } from '@adonis-agora/resilience/testing'
 import { MyResilienceStore } from './my-store.js'
 
 runResilienceStoreContract('MyResilienceStore', (clock) => new MyResilienceStore({ clock }))
+```
+
+```ts
+// bulkhead / rate-limiter backends:
+import { runBulkheadStoreContract, runRateLimitStoreContract } from '@adonis-agora/resilience/testing'
+
+runBulkheadStoreContract('MyBulkheadStore', (clock) => new MyBulkheadStore({ clock }))
+runRateLimitStoreContract('MyRateLimitStore', (clock) => new MyRateLimitStore({ clock }))
 ```
 
 The same clock seam makes policy timing deterministic — `timeout`, `retry`, and
@@ -372,7 +402,8 @@ runResilienceStoreContract('MyLuaStore', (clock: Clock) => new MyLuaStore(clock)
 Mechanism: a Tier-3 (server-side) implementation must stay byte-for-byte faithful
 to `computeAdmit`/`computeRecord`, and the shared suite is the only guard against
 drift — it hammers atomicity and the transition table exactly like the built-in
-Lucid/Redis adapters are verified.
+Lucid/Redis adapters are verified. Bulkhead and rate-limiter backends need the
+matching guard instead: `runBulkheadStoreContract` / `runRateLimitStoreContract`.
 
 Source: `docs/custom-store.mdx Callout "You are now the source-of-truth twin"` +
 `§ "Validate against the contract suite"`

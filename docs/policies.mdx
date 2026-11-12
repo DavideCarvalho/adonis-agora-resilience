@@ -106,7 +106,7 @@ retry({ attempts: 5, backoff: () => 250 }) // always 250ms
 ```ts
 circuitBreaker(opts: {
   key: string
-  store: ResilienceStore  // required — pick where breaker state lives
+  store?: ResilienceStore | string  // a store, or a store name from config (named policies)
   threshold: number       // consecutive failures before opening
   cooldownMs: number      // how long to stay open before probing
   halfOpenMax?: number    // concurrent probes allowed in half-open (default 1)
@@ -135,11 +135,107 @@ try {
 }
 ```
 
-The breaker has no implicit, module-wide store: `store` is a required option, so it is always obvious which circuits share state. Pass the same store instance to every breaker that should share state (or wire one store into [`config/resilience.ts`](/docs/resilience/adonis) and reuse it).
+Pass the same store instance to every breaker that should share state. In a policy registered under `policies` in [`config/resilience.ts`](/docs/resilience/adonis), name a store from `stores` (`store: 'redis'`) or leave `store` out to use the default one. A breaker built anywhere else without a `store` uses one in-memory store shared by the whole process.
 
 <Callout type="info">
 The in-memory store keeps breaker state per process. To trip the breaker fleet-wide — one instance opens, all instances skip — pass a distributed store and the half-open probe is coordinated atomically. See [Stores](/docs/resilience/stores).
 </Callout>
+
+## `bulkhead`
+
+```ts
+bulkhead(opts: {
+  key: string
+  limit: number            // calls allowed to run at once
+  queue?: number           // calls allowed to wait for a slot, per process (default 0: reject)
+  queueTimeoutMs?: number  // how long a queued call waits (default 10s)
+  leaseMs?: number         // a slot is freed after this long if its process died (default 60s)
+  pollMs?: number          // how often a queued call re-checks a shared store (default 50ms)
+  store?: BulkheadStore | string
+  onEvent?: EventSink
+}): Policy
+```
+
+Caps how many calls run at once, so one slow dependency cannot take every worker or connection with it. Past `limit`, a call waits in the queue (up to `queue` callers, for up to `queueTimeoutMs`) or fails at once with **`BulkheadRejectedError`** (`reason`: `'full'`, `'queue-full'` or `'queue-timeout'`).
+
+```ts title="config/resilience.ts"
+import { defineConfig, stores, wrap, bulkhead, timeout } from '@adonis-agora/resilience'
+
+export default defineConfig({
+  default: 'redis',
+  stores: { redis: stores.redis({ connection: 'main' }) },
+  policies: {
+    // at most 10 report renders at once across the fleet, 20 more may wait up to 5s
+    reports: () => wrap(bulkhead({ key: 'reports', limit: 10, queue: 20, queueTimeoutMs: 5_000 }), timeout(30_000)),
+  },
+})
+```
+
+With the memory store the limit is per process and a queued call starts the moment a slot is released. With Redis or Lucid the limit holds across every process; queued calls re-check every `pollMs`. Set `leaseMs` above your slowest call: a call running longer than that stops counting against the limit.
+
+Turn the rejection into a `503` in the controller:
+
+```ts title="app/controllers/reports_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import resilience from '@adonis-agora/resilience/services/main'
+import { BulkheadRejectedError } from '@adonis-agora/resilience'
+import ReportService from '#services/report_service'
+
+export default class ReportsController {
+  async show({ params, response }: HttpContext) {
+    try {
+      return await resilience.execute('reports', () => ReportService.render(params.id))
+    } catch (error) {
+      if (error instanceof BulkheadRejectedError) {
+        return response.serviceUnavailable({ message: 'Too many reports are being generated, try again shortly' })
+      }
+      throw error
+    }
+  }
+}
+```
+
+## `rateLimiter`
+
+```ts
+rateLimiter(opts: {
+  key: string
+  limit: number        // calls allowed per interval
+  intervalMs: number
+  burst?: number       // calls allowed at once after a quiet period (default `limit`)
+  cost?: number        // tokens one call takes (default 1)
+  maxWaitMs?: number   // wait this long for budget instead of failing (default 0)
+  store?: RateLimitStore | string
+  onEvent?: EventSink
+}): Policy
+```
+
+Keeps outbound calls under a provider's quota (a token bucket: `limit` tokens refill evenly over each `intervalMs`). Over budget, a call waits up to `maxWaitMs` for the next token or fails with **`RateLimitedError`**, which carries `retryAfterMs`.
+
+```ts title="config/resilience.ts"
+policies: {
+  // the SMS provider allows 100 requests per minute for the whole account
+  sms: () => wrap(rateLimiter({ key: 'sms', limit: 100, intervalMs: 60_000, maxWaitMs: 2_000 }), retry({ attempts: 2 })),
+}
+```
+
+```ts title="app/jobs/send_sms_job.ts"
+import resilience from '@adonis-agora/resilience/services/main'
+import { RateLimitedError } from '@adonis-agora/resilience'
+
+export default class SendSmsJob {
+  async handle(payload: { to: string; body: string }) {
+    try {
+      await resilience.execute('sms', () => sms.send(payload))
+    } catch (error) {
+      if (error instanceof RateLimitedError) return this.release(error.retryAfterMs)
+      throw error
+    }
+  }
+}
+```
+
+With the memory store each process has its own budget; with Redis or Lucid one budget is shared by the fleet, which is what a provider quota needs.
 
 ## `failover`
 
@@ -189,5 +285,7 @@ await policy.execute(() => callOnce())
 | --- | --- | --- |
 | `TimeoutError` | `timeout` | `ms` — the deadline that elapsed |
 | `BrokenCircuitError` | `circuitBreaker` | `key` — the open circuit's key |
+| `BulkheadRejectedError` | `bulkhead` | `key`, `reason` (`'full'`, `'queue-full'`, `'queue-timeout'`) |
+| `RateLimitedError` | `rateLimiter` | `key`, `retryAfterMs` |
 
-Both extend `Error` with a stable `name`, so `instanceof` checks work across module boundaries.
+All extend `Error` with a stable `name`, so `instanceof` checks work across module boundaries.

@@ -1,4 +1,16 @@
+import { randomUUID } from 'node:crypto';
 import { type Clock, systemClock } from '../clock.js';
+import { type BucketState, bucketTtlMs, consumeTokens } from '../limits/token_bucket.js';
+import type {
+  BulkheadAdmission,
+  BulkheadConfig,
+  BulkheadSnapshot,
+  BulkheadStore,
+  RateLimitConfig,
+  RateLimitDecision,
+  RateLimitSnapshot,
+  RateLimitStore,
+} from '../limits/types.js';
 import {
   type CircuitState,
   computeAdmit,
@@ -32,8 +44,20 @@ interface StoredCircuit {
   touchedAt: number;
 }
 
-export class InMemoryResilienceStore implements ResilienceStore {
+/**
+ * In-process store for circuits, bulkheads and rate limiters. State belongs to this process only:
+ * every process of a fleet has its own circuits, its own bulkhead slots and its own rate budget.
+ */
+export class InMemoryResilienceStore implements ResilienceStore, BulkheadStore, RateLimitStore {
   private readonly map = new Map<string, StoredCircuit>();
+  /**
+   * Bulkhead key → lease id → expiry (epoch ms). A key is only here while one of its slots is held,
+   * so its size is bounded by the calls in flight (no `maxEntries` eviction: that would free slots).
+   */
+  private readonly bulkheads = new Map<string, Map<string, number>>();
+  private readonly releaseListeners = new Map<string, Set<() => void>>();
+  /** Rate-limiter key → bucket, least recently used first; dropped once full again. */
+  private readonly buckets = new Map<string, BucketState & { expiresAt: number }>();
   private readonly maxEntries: number | undefined;
   private readonly ttlMs: number | undefined;
 
@@ -121,5 +145,117 @@ export class InMemoryResilienceStore implements ResilienceStore {
     // Dropping the entry is equivalent to resetting to INITIAL_CIRCUIT_STATE — the next
     // entry(key) recreates it fresh.
     this.map.delete(key);
+  }
+
+  // ── bulkheads ──────────────────────────────────────────────────────────────────────────────
+
+  private liveLeases(key: string): Map<string, number> | undefined {
+    const leases = this.bulkheads.get(key);
+    if (!leases) return undefined;
+    const now = this.clock.now();
+    for (const [id, expiresAt] of leases) if (expiresAt <= now) leases.delete(id);
+    if (leases.size === 0) {
+      this.bulkheads.delete(key);
+      return undefined;
+    }
+    return leases;
+  }
+
+  async acquireBulkhead(key: string, cfg: BulkheadConfig): Promise<BulkheadAdmission> {
+    const leases = this.liveLeases(key) ?? new Map<string, number>();
+    if (leases.size >= cfg.limit) return { acquired: false, active: leases.size };
+    const leaseId = randomUUID();
+    leases.set(leaseId, this.clock.now() + cfg.leaseMs);
+    this.bulkheads.set(key, leases);
+    return { acquired: true, leaseId, active: leases.size };
+  }
+
+  async releaseBulkhead(key: string, leaseId: string): Promise<void> {
+    const leases = this.bulkheads.get(key);
+    if (leases?.delete(leaseId) && leases.size === 0) this.bulkheads.delete(key);
+    for (const listener of [...(this.releaseListeners.get(key) ?? [])]) listener();
+  }
+
+  async bulkheadSnapshot(key: string): Promise<BulkheadSnapshot> {
+    return { active: this.liveLeases(key)?.size ?? 0 };
+  }
+
+  async resetBulkhead(key: string): Promise<void> {
+    this.bulkheads.delete(key);
+    for (const listener of [...(this.releaseListeners.get(key) ?? [])]) listener();
+  }
+
+  async bulkheadKeys(opts: KeysQuery): Promise<string[]> {
+    const out: string[] = [];
+    for (const key of [...this.bulkheads.keys()]) {
+      if (out.length >= opts.limit) break;
+      if (opts.prefix !== undefined && !key.startsWith(opts.prefix)) continue;
+      if (this.liveLeases(key)) out.push(key);
+    }
+    return out;
+  }
+
+  onBulkheadRelease(key: string, listener: () => void): () => void {
+    let set = this.releaseListeners.get(key);
+    if (!set) {
+      set = new Set();
+      this.releaseListeners.set(key, set);
+    }
+    set.add(listener);
+    return () => {
+      set.delete(listener);
+      if (set.size === 0) this.releaseListeners.delete(key);
+    };
+  }
+
+  // ── rate limiters ──────────────────────────────────────────────────────────────────────────
+
+  private bucket(key: string): BucketState | undefined {
+    const stored = this.buckets.get(key);
+    if (!stored) return undefined;
+    if (stored.expiresAt <= this.clock.now()) {
+      this.buckets.delete(key);
+      return undefined;
+    }
+    return stored;
+  }
+
+  async consumeRateLimit(
+    key: string,
+    cfg: RateLimitConfig,
+    cost: number,
+  ): Promise<RateLimitDecision> {
+    const now = this.clock.now();
+    const { state, decision } = consumeTokens(this.bucket(key), cfg, cost, now);
+    this.buckets.delete(key);
+    this.buckets.set(key, { ...state, expiresAt: now + bucketTtlMs(cfg) });
+    if (this.maxEntries !== undefined) {
+      while (this.buckets.size > this.maxEntries) {
+        const oldest = this.buckets.keys().next().value;
+        if (oldest === undefined) break;
+        this.buckets.delete(oldest);
+      }
+    }
+    return decision;
+  }
+
+  async rateLimitSnapshot(key: string): Promise<RateLimitSnapshot> {
+    const state = this.bucket(key);
+    const now = this.clock.now();
+    return state ? { tokens: state.tokens, updatedAt: state.updatedAt, now } : { now };
+  }
+
+  async resetRateLimit(key: string): Promise<void> {
+    this.buckets.delete(key);
+  }
+
+  async rateLimitKeys(opts: KeysQuery): Promise<string[]> {
+    const out: string[] = [];
+    for (const key of [...this.buckets.keys()]) {
+      if (out.length >= opts.limit) break;
+      if (opts.prefix !== undefined && !key.startsWith(opts.prefix)) continue;
+      if (this.bucket(key)) out.push(key);
+    }
+    return out;
   }
 }

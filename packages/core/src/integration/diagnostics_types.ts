@@ -34,6 +34,20 @@ export interface ResilienceChannels {
   retry: Base & { type: 'retry'; attempt: number; error?: ResilienceBusError };
   timeout: Base & { type: 'timeout'; ms: number };
   failover: Base & { type: 'failover'; target: string; index: number; error?: ResilienceBusError };
+  'bulkhead-rejected': Base & {
+    type: 'bulkhead-rejected';
+    key: string;
+    reason: 'full' | 'queue-full' | 'queue-timeout';
+    active: number;
+    limit: number;
+  };
+  'rate-limited': Base & {
+    type: 'rate-limited';
+    key: string;
+    retryAfterMs: number;
+    limit: number;
+    intervalMs: number;
+  };
   executed: Base & {
     type: 'executed';
     policy: string;

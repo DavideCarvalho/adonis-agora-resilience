@@ -192,6 +192,8 @@ export default class InventoryService {
 | `resetCircuit(key, { store?, by?, via? })` | reset, log an audit line, emit `circuit-reset`, return the circuit |
 | `circuits({ store?, status?, prefix?, limit? })` | list circuits with their live state, open first |
 | `getCircuit(key, store?)` | one circuit with its live state |
+| `bulkheads({ store?, prefix?, limit? })` / `getBulkhead(key, store?)` | bulkheads with their live occupancy |
+| `rateLimiters({ store?, prefix?, limit? })` / `getRateLimiter(key, store?)` | rate limiters with their remaining budget |
 | `policyNames()` / `describePolicies()` | the named policies and what each is made of |
 | `recentEvents({ type?, key?, policy?, limit? })` | the last events of this process, newest first |
 

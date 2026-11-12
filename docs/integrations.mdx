@@ -16,6 +16,7 @@ Each state transition is a `ResilienceEvent` handed to an `EventSink`:
 type ResilienceEventType =
   | 'circuit-opened' | 'circuit-closed' | 'circuit-half-open' | 'circuit-reset'
   | 'short-circuited' | 'failover' | 'timeout' | 'retry' | 'executed'
+  | 'bulkhead-rejected' | 'rate-limited'
 
 interface ResilienceEvent {
   type: ResilienceEventType
@@ -34,6 +35,8 @@ What emits each type:
 - the **timeout** policy emits `timeout` (carrying `ms`, the elapsed budget) when an operation exceeds its deadline;
 - the **retry** policy emits `retry` (carrying `attempt`, the 1-based number of the *upcoming* re-attempt, and `error`, the failure that triggered it) before each re-try;
 - `resilience.resetCircuit()` (and `circuit(key).reset()`) emits `circuit-reset` (carrying `store`, `previous`, and the `by` / `via` you pass);
+- the **bulkhead** emits `bulkhead-rejected` (carrying `reason`, `active`, `limit`);
+- the **rate limiter** emits `rate-limited` (carrying `retryAfterMs`, `limit`, `intervalMs`);
 - a named policy emits `executed` after every call, when you turn it on (see below).
 
 `timeout` and `retry` fire only when a sink is wired to the policy, so they cost nothing when nobody is listening. Like the others, they flow through `diagnosticsSink()` as `agora:resilience:timeout` / `agora:resilience:retry`, and through the EventEmitter mirror as `resilience.timeout` / `resilience.retry`.

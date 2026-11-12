@@ -107,3 +107,69 @@ end
 touch()
 return status
 `;
+
+/**
+ * Atomic bulkhead acquire. KEYS[1] = sorted set of slots (member = lease id, score = expiry).
+ * ARGV: now, limit, leaseMs, leaseId. Returns {acquired(1/0), active}.
+ */
+export const BULKHEAD_ACQUIRE_LUA = `
+local z = KEYS[1]
+local now = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+local lease = tonumber(ARGV[3])
+redis.call('ZREMRANGEBYSCORE', z, '-inf', now)
+local n = redis.call('ZCARD', z)
+if n < limit then
+  redis.call('ZADD', z, now + lease, ARGV[4])
+  redis.call('PEXPIRE', z, lease)
+  return {1, n + 1}
+end
+return {0, n}
+`;
+
+/** Release one slot. KEYS[1] = slots set. ARGV: leaseId. */
+export const BULKHEAD_RELEASE_LUA = `
+redis.call('ZREM', KEYS[1], ARGV[1])
+return 1
+`;
+
+/** Count live slots. KEYS[1] = slots set. ARGV: now. */
+export const BULKHEAD_COUNT_LUA = `
+return redis.call('ZCOUNT', KEYS[1], '(' .. ARGV[1], '+inf')
+`;
+
+/**
+ * Atomic token-bucket consume, mirroring `limits/token_bucket.ts`. KEYS[1] = bucket hash
+ * (`tokens`, `updatedAt`, `expiresAt`: once idle past it the bucket reads as new). ARGV: now, ratePerMs, capacity, cost, ttlMs.
+ * Returns {allowed(1/0), tokens (string), retryAfterMs (string)}.
+ */
+export const RATE_LIMIT_LUA = `
+local h = KEYS[1]
+local now = tonumber(ARGV[1])
+local rate = tonumber(ARGV[2])
+local capacity = tonumber(ARGV[3])
+local cost = tonumber(ARGV[4])
+local ttl = tonumber(ARGV[5])
+local tokens = tonumber(redis.call('HGET', h, 'tokens'))
+local updated = tonumber(redis.call('HGET', h, 'updatedAt'))
+local expires = tonumber(redis.call('HGET', h, 'expiresAt'))
+if tokens == nil or updated == nil or (expires ~= nil and expires <= now) then
+  tokens = capacity
+else
+  local elapsed = now - updated
+  if elapsed < 0 then elapsed = 0 end
+  tokens = math.min(capacity, tokens + elapsed * rate)
+end
+local allowed = 0
+local retry = 0
+if tokens >= cost then
+  tokens = tokens - cost
+  allowed = 1
+else
+  retry = math.ceil((cost - tokens) / rate - 1e-9)
+  if retry < 1 then retry = 1 end
+end
+redis.call('HSET', h, 'tokens', string.format('%.17g', tokens), 'updatedAt', now, 'expiresAt', now + ttl)
+redis.call('PEXPIRE', h, ttl)
+return {allowed, string.format('%.17g', tokens), string.format('%d', retry)}
+`;

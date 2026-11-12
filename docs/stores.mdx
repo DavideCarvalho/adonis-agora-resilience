@@ -8,7 +8,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-The circuit breaker keeps its state — failure counts, open-until timestamps, the half-open probe — behind a small **`ResilienceStore`** interface. Swap the implementation to move that state from one process to your whole fleet.
+The circuit breaker keeps its state — failure counts, open-until timestamps, the half-open probe — behind a small **`ResilienceStore`** interface. Swap the implementation to move that state from one process to your whole fleet. The built-in stores also hold [bulkhead](/docs/resilience/policies#bulkhead) slots and [rate-limiter](/docs/resilience/policies#ratelimiter) budgets, so a store you configure once serves all three.
 
 ```ts
 interface ResilienceStore {
@@ -255,7 +255,7 @@ The client type is `RedisLike`, a three-method structural slice (`defineCommand`
 
 ## Lucid: migration over auto-create
 
-Auto-create is convenient, but in production you usually own the schema with a migration. Disable auto-create and run the DDL from a migration instead. The package exports `CIRCUITS_DDL` for that, plus a helper that runs it:
+Auto-create is convenient, but in production you usually own the schema with a migration. Disable auto-create and run the DDL from a migration instead. The package exports the DDL for each table (`CIRCUITS_DDL`, `BULKHEADS_DDL`, `RATE_LIMITS_DDL`, all three in `RESILIENCE_DDL`), plus a helper that runs them:
 
 <Steps>
 <Step>
@@ -274,15 +274,31 @@ export default class extends BaseSchema {
       table.bigInteger('open_until').notNullable().defaultTo(0)
       table.integer('probes').notNullable().defaultTo(0)
     })
+
+    // only needed when you use bulkhead() / rateLimiter() on this store
+    this.schema.createTable('resilience_bulkhead_leases', (table) => {
+      table.text('key').notNullable()
+      table.text('lease_id').notNullable()
+      table.bigInteger('expires_at').notNullable()
+      table.primary(['key', 'lease_id'])
+    })
+    this.schema.createTable('resilience_rate_limits', (table) => {
+      table.text('key').primary()
+      table.double('tokens').notNullable()
+      table.bigInteger('updated_at').notNullable()
+      table.bigInteger('expires_at').notNullable()
+    })
   }
 
   async down() {
+    this.schema.dropTable('resilience_rate_limits')
+    this.schema.dropTable('resilience_bulkhead_leases')
     this.schema.dropTable('resilience_circuits')
   }
 }
 ```
 
-The columns match `CIRCUITS_DDL` — `key`, `status`, `failures`, `open_until`, `probes`. If you prefer the raw DDL string, run `this.schema.raw(CIRCUITS_DDL)` instead.
+The columns match the exported DDL. If you prefer the raw strings, run `for (const ddl of RESILIENCE_DDL) this.schema.raw(ddl)` instead.
 
 </Step>
 <Step>
@@ -309,7 +325,7 @@ export default defineConfig({
 ensureResilienceSchema(db: LucidQueryClient): Promise<void>
 ```
 
-Runs `CIRCUITS_DDL` against the client you give it. It is idempotent (`CREATE TABLE IF NOT EXISTS`), so calling it repeatedly is harmless — handy in a test setup or a one-off script where a migration would be overkill:
+Runs `RESILIENCE_DDL` (circuits, bulkhead slots, rate-limiter buckets) against the client you give it. It is idempotent (`CREATE TABLE IF NOT EXISTS`), so calling it repeatedly is harmless — handy in a test setup or a one-off script where a migration would be overkill:
 
 ```ts
 import { ensureResilienceSchema } from '@adonis-agora/resilience'
@@ -357,7 +373,7 @@ const driver: SqlDriver = {
 }
 
 const store = new SqlResilienceStore(driver)
-await store.ensureSchema() // runs CIRCUITS_DDL
+await store.ensureSchema() // runs RESILIENCE_DDL
 ```
 
 Pass a fully-constructed store as `store` in `config/resilience.ts` (it takes precedence over `default`/`stores`):

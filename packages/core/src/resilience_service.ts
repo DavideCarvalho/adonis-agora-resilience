@@ -15,6 +15,14 @@ import {
 } from './events.js';
 import { defaultSanitizeError, diagnosticsSink } from './integration/diagnostics.js';
 import { type EventEmitterLike, eventEmitterSink } from './integration/event_emitter.js';
+import { bucketCapacity, tokensAt } from './limits/token_bucket.js';
+import {
+  type BulkheadStore,
+  isBulkheadStore,
+  isRateLimitStore,
+  type RateLimitConfig,
+  type RateLimitStore,
+} from './limits/types.js';
 import { type FailoverOptions, failover } from './policies/failover.js';
 import type { Operation, Policy } from './policy.js';
 import { KnownKeys } from './visibility/known_keys.js';
@@ -80,6 +88,44 @@ export interface CircuitInfo {
   threshold?: number;
   /** The breaker's `cooldownMs`, when this process has used the circuit. */
   cooldownMs?: number;
+}
+
+/** One bulkhead, as listed by {@link ResilienceService.bulkheads}. */
+export interface BulkheadInfo {
+  key: string;
+  store: string;
+  policy?: string;
+  /** Calls holding a slot right now. */
+  active: number;
+  /** The bulkhead's `limit`, when this process has used it. */
+  limit?: number;
+  /** How many calls may queue (per process), when known. */
+  queue?: number;
+  scope: StoreScope;
+}
+
+/** One rate limiter, as listed by {@link ResilienceService.rateLimiters}. */
+export interface RateLimiterInfo {
+  key: string;
+  store: string;
+  policy?: string;
+  /** Whole tokens left now, when the limiter's config is known (always for an unused bucket's capacity). */
+  remaining?: number;
+  /** The limiter's `limit` per `intervalMs`, when this process has used it. */
+  limit?: number;
+  intervalMs?: number;
+  burst?: number;
+  /** Raw tokens stored, when the config is unknown. */
+  tokens?: number;
+  scope: StoreScope;
+}
+
+/** Filters for {@link ResilienceService.bulkheads} and {@link ResilienceService.rateLimiters}. */
+export interface LimitsQuery {
+  store?: string;
+  prefix?: string;
+  /** Default 100, at most 1000. */
+  limit?: number;
 }
 
 /** Filters for {@link ResilienceService.circuits}. */
@@ -281,6 +327,53 @@ export class ResilienceService {
       .slice(0, limit);
   }
 
+  /** Every bulkhead the stores hold plus the ones this process used, busiest first. */
+  async bulkheads(query: LimitsQuery = {}): Promise<BulkheadInfo[]> {
+    const limit = clampLimit(query.limit, 100, 1000);
+    const keysByStore = await this.collectKeys('bulkhead', query, limit, (store) =>
+      isBulkheadStore(store) ? store.bulkheadKeys?.bind(store) : undefined,
+    );
+    const pairs = [...keysByStore].flatMap(([store, keys]) =>
+      isBulkheadStore(store) ? [...keys].map((key) => ({ store, key })) : [],
+    );
+    const out = await mapLimit(pairs, 16, ({ key, store }) => this.bulkheadInfo(key, store));
+    return out.sort((a, b) => b.active - a.active || a.key.localeCompare(b.key)).slice(0, limit);
+  }
+
+  /** One bulkhead with its live occupancy. */
+  async getBulkhead(key: string, storeName?: string): Promise<BulkheadInfo> {
+    const store = this.circuitStore(storeName);
+    if (!isBulkheadStore(store))
+      throw new Error(`The store "${this.storeName(store)}" has no bulkheads.`);
+    return this.bulkheadInfo(key, store);
+  }
+
+  /** Every rate limiter the stores hold plus the ones this process used, emptiest first. */
+  async rateLimiters(query: LimitsQuery = {}): Promise<RateLimiterInfo[]> {
+    const limit = clampLimit(query.limit, 100, 1000);
+    const keysByStore = await this.collectKeys('rate-limiter', query, limit, (store) =>
+      isRateLimitStore(store) ? store.rateLimitKeys?.bind(store) : undefined,
+    );
+    const pairs = [...keysByStore].flatMap(([store, keys]) =>
+      isRateLimitStore(store) ? [...keys].map((key) => ({ store, key })) : [],
+    );
+    const out = await mapLimit(pairs, 16, ({ key, store }) => this.rateLimiterInfo(key, store));
+    const fill = (r: RateLimiterInfo) =>
+      r.remaining !== undefined && r.limit !== undefined
+        ? r.remaining / (r.burst ?? r.limit)
+        : Number.POSITIVE_INFINITY;
+    return out.sort((a, b) => fill(a) - fill(b) || a.key.localeCompare(b.key)).slice(0, limit);
+  }
+
+  /** One rate limiter with its live budget. */
+  async getRateLimiter(key: string, storeName?: string): Promise<RateLimiterInfo> {
+    const store = this.circuitStore(storeName);
+    if (!isRateLimitStore(store)) {
+      throw new Error(`The store "${this.storeName(store)}" has no rate limiters.`);
+    }
+    return this.rateLimiterInfo(key, store);
+  }
+
   /** The names under `policies` in config. */
   policyNames(): string[] {
     return Object.keys(this.policies);
@@ -386,6 +479,85 @@ export class ResilienceService {
     const config = sameStore ? known?.config : undefined;
     if (typeof config?.threshold === 'number') info.threshold = config.threshold;
     if (typeof config?.cooldownMs === 'number') info.cooldownMs = config.cooldownMs;
+    return info;
+  }
+
+  private async collectKeys(
+    kind: 'bulkhead' | 'rate-limiter',
+    query: LimitsQuery,
+    limit: number,
+    lister: (
+      store: ResilienceStore,
+    ) => ((q: { prefix?: string; limit: number }) => Promise<string[]>) | undefined,
+  ): Promise<Map<unknown, Set<string>>> {
+    const targets: unknown[] = query.store ? [this.requireStore(query.store)] : this.allStores();
+    const keysByStore = new Map<unknown, Set<string>>();
+    const add = (store: unknown, key: string) => {
+      if (query.prefix !== undefined && !key.startsWith(query.prefix)) return;
+      let set = keysByStore.get(store);
+      if (!set) {
+        set = new Set();
+        keysByStore.set(store, set);
+      }
+      set.add(key);
+    };
+    for (const store of targets) {
+      const list = lister(store as ResilienceStore);
+      if (!list) continue;
+      const keys = await list({
+        ...(query.prefix !== undefined ? { prefix: query.prefix } : {}),
+        limit,
+      });
+      for (const key of keys) add(store, key);
+    }
+    for (const known of this.known.list(kind)) {
+      if (query.store && known.store !== targets[0]) continue;
+      add(known.store, known.key);
+    }
+    return keysByStore;
+  }
+
+  private async bulkheadInfo(key: string, store: BulkheadStore): Promise<BulkheadInfo> {
+    const { active } = await store.bulkheadSnapshot(key);
+    const known = this.known.get('bulkhead', key, store);
+    const info: BulkheadInfo = {
+      key,
+      store: this.storeName(store),
+      active,
+      scope: this.storeScope(store),
+    };
+    if (known) {
+      if (known.policy !== undefined) info.policy = known.policy;
+      if (typeof known.config?.limit === 'number') info.limit = known.config.limit;
+      if (typeof known.config?.queue === 'number') info.queue = known.config.queue;
+    }
+    return info;
+  }
+
+  private async rateLimiterInfo(key: string, store: RateLimitStore): Promise<RateLimiterInfo> {
+    const snapshot = await store.rateLimitSnapshot(key);
+    const known = this.known.get('rate-limiter', key, store);
+    const info: RateLimiterInfo = {
+      key,
+      store: this.storeName(store),
+      scope: this.storeScope(store),
+    };
+    const config = known?.config as RateLimitConfig | undefined;
+    if (known?.policy !== undefined) info.policy = known.policy;
+    if (config && typeof config.limit === 'number' && typeof config.intervalMs === 'number') {
+      info.limit = config.limit;
+      info.intervalMs = config.intervalMs;
+      if (config.burst !== undefined) info.burst = config.burst;
+      const state =
+        snapshot.tokens !== undefined && snapshot.updatedAt !== undefined
+          ? { tokens: snapshot.tokens, updatedAt: snapshot.updatedAt }
+          : undefined;
+      info.remaining = Math.floor(
+        state ? tokensAt(state, config, snapshot.now ?? Date.now()) : bucketCapacity(config),
+      );
+    } else if (snapshot.tokens !== undefined) {
+      info.tokens = snapshot.tokens;
+    }
     return info;
   }
 

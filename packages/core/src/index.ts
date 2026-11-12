@@ -8,7 +8,13 @@ export type {
   SqlResilienceStoreOptions,
   SqlTx,
 } from './breaker/sql.js';
-export { CIRCUITS_DDL, SqlResilienceStore } from './breaker/sql.js';
+export {
+  BULKHEADS_DDL,
+  CIRCUITS_DDL,
+  RATE_LIMITS_DDL,
+  RESILIENCE_DDL,
+  SqlResilienceStore,
+} from './breaker/sql.js';
 export type { CircuitState } from './breaker/state_machine.js';
 export { computeAdmit, computeRecord, INITIAL_CIRCUIT_STATE } from './breaker/state_machine.js';
 export type { KeysQuery, ResilienceStore } from './breaker/store.js';
@@ -19,7 +25,13 @@ export { withResilience } from './decorator.js';
 export type { ResilienceConfig } from './define_config.js';
 export { defineConfig } from './define_config.js';
 export { describePolicy } from './describe.js';
-export { BrokenCircuitError, TimeoutError } from './errors.js';
+export type { BulkheadRejection } from './errors.js';
+export {
+  BrokenCircuitError,
+  BulkheadRejectedError,
+  RateLimitedError,
+  TimeoutError,
+} from './errors.js';
 export type {
   EventSink,
   ResilienceEvent,
@@ -36,17 +48,33 @@ export type {
 } from './integration/diagnostics_types.js';
 export type { EventEmitterLike } from './integration/event_emitter.js';
 export { eventEmitterSink, resilienceEventName } from './integration/event_emitter.js';
+export type {
+  BulkheadAdmission,
+  BulkheadConfig,
+  BulkheadSnapshot,
+  BulkheadStore,
+  RateLimitConfig,
+  RateLimitDecision,
+  RateLimitSnapshot,
+  RateLimitStore,
+} from './limits/types.js';
+export { isBulkheadStore, isRateLimitStore } from './limits/types.js';
+export { type BulkheadOptions, bulkhead } from './policies/bulkhead.js';
 export { type CircuitBreakerOptions, circuitBreaker } from './policies/circuit_breaker.js';
 export { type FailoverOptions, failover } from './policies/failover.js';
+export { type RateLimiterOptions, rateLimiter } from './policies/rate_limiter.js';
 export { type Backoff, exponential, retry } from './policies/retry.js';
 export { timeout } from './policies/timeout.js';
 export { wrap } from './policies/wrap.js';
 export type { Operation, Policy, PolicyContext } from './policy.js';
 export { rootContext } from './policy.js';
 export type {
+  BulkheadInfo,
   CircuitInfo,
   CircuitsQuery,
+  LimitsQuery,
   PolicyDescription,
+  RateLimiterInfo,
   ResetOptions,
   ResilienceLogger,
   ResilienceServiceOptions,

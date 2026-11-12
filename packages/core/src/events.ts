@@ -10,7 +10,9 @@ export type ResilienceEventType =
   | 'failover'
   | 'timeout'
   | 'retry'
-  | 'executed';
+  | 'executed'
+  | 'bulkhead-rejected'
+  | 'rate-limited';
 
 export interface ResilienceEvent {
   type: ResilienceEventType;
