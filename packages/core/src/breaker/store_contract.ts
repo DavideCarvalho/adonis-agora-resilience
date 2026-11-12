@@ -113,5 +113,37 @@ export function runResilienceStoreContract(
       await s.reset('never-seen');
       expect((await s.snapshot('never-seen')).status).toBe('closed');
     });
+
+    it('keys() (when implemented) lists the circuits it holds, by prefix and up to limit', async () => {
+      const s = makeStore(new FakeClock());
+      if (typeof s.keys !== 'function') return;
+      await s.record('pay:stripe', cfg, false, false);
+      await s.record('pay:asaas', cfg, false, false);
+      await s.record('mail:ses', cfg, false, false);
+      expect([...(await s.keys({ limit: 10 }))].sort()).toEqual([
+        'mail:ses',
+        'pay:asaas',
+        'pay:stripe',
+      ]);
+      expect([...(await s.keys({ prefix: 'pay:', limit: 10 }))].sort()).toEqual([
+        'pay:asaas',
+        'pay:stripe',
+      ]);
+      expect(await s.keys({ limit: 1 })).toHaveLength(1);
+      await s.reset('mail:ses');
+      expect(await s.keys({ prefix: 'mail:', limit: 10 })).toEqual([]);
+    });
+
+    it('keys() treats wildcard characters in the prefix literally', async () => {
+      const s = makeStore(new FakeClock());
+      if (typeof s.keys !== 'function') return;
+      await s.record('a_b', cfg, false, false);
+      await s.record('axb', cfg, false, false);
+      await s.record('a%c', cfg, false, false);
+      await s.record('a*d', cfg, false, false);
+      expect(await s.keys({ prefix: 'a_', limit: 10 })).toEqual(['a_b']);
+      expect(await s.keys({ prefix: 'a%', limit: 10 })).toEqual(['a%c']);
+      expect(await s.keys({ prefix: 'a*', limit: 10 })).toEqual(['a*d']);
+    });
   });
 }

@@ -26,4 +26,17 @@ export interface ResilienceStore {
    * unknown key is a no-op.
    */
   reset(key: string): Promise<void>;
+  /**
+   * OPTIONAL: list the circuit keys this store holds, for dashboards and tooling. Stores that cannot
+   * enumerate cheaply leave it out; the service then lists the keys it saw in this process.
+   */
+  keys?(opts: KeysQuery): Promise<string[]>;
+}
+
+/** Input of the optional `keys()` store methods. */
+export interface KeysQuery {
+  /** Only keys starting with this prefix. */
+  prefix?: string;
+  /** Upper bound on how many keys come back. */
+  limit: number;
 }

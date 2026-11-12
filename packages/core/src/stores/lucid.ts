@@ -149,6 +149,11 @@ export class LucidResilienceStore extends SqlResilienceStore {
     return super.snapshot(...args);
   }
 
+  override async keys(...args: Parameters<SqlResilienceStore['keys']>) {
+    await this.ready();
+    return super.keys(...args);
+  }
+
   override async reset(...args: Parameters<SqlResilienceStore['reset']>) {
     await this.ready();
     return super.reset(...args);

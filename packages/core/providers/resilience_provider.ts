@@ -40,8 +40,10 @@ export default class ResilienceProvider {
         );
       }
 
+      const logger = await this.app.container.make('logger').catch(() => undefined);
       return new ResilienceService({
         ...rest,
+        ...(logger ? { logger } : {}),
         ...(store !== undefined ? { store } : {}),
         ...(defaultStore !== undefined ? { defaultStore } : {}),
         stores: resolved,

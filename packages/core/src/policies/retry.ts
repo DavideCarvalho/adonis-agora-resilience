@@ -1,4 +1,5 @@
 import { type Clock, systemClock } from '../clock.js';
+import { formatMs, readDescription, tagDescription } from '../describe.js';
 import { type EventSink, policySink } from '../events.js';
 import { type Operation, type Policy, type PolicyContext, rootContext } from '../policy.js';
 
@@ -16,7 +17,7 @@ export function exponential(
   opts: { jitter?: boolean; factor?: number; maxMs?: number } = {},
 ): Backoff {
   const factor = opts.factor ?? 2;
-  return (attempt) => {
+  const backoff: Backoff = (attempt) => {
     const raw = baseMs * factor ** attempt;
     const capped = opts.maxMs !== undefined ? Math.min(raw, opts.maxMs) : raw;
     if (!opts.jitter) return capped;
@@ -24,6 +25,7 @@ export function exponential(
     // (not full jitter, which would be a 0×–1.0× band starting from Math.random() * raw).
     return Math.round(capped * (0.5 + Math.random() / 2));
   };
+  return tagDescription(backoff, [`exp ${formatMs(baseMs)}`]);
 }
 
 /**
@@ -40,7 +42,7 @@ export function retry(opts: {
   const clock = opts.clock ?? systemClock;
   const backoff = opts.backoff ?? (() => 0);
   const onEvent = policySink(opts.onEvent);
-  return {
+  const policy: Policy = {
     async execute<T>(op: Operation<T>, parent: PolicyContext = rootContext()): Promise<T> {
       let last: unknown;
       for (let attempt = 0; attempt < opts.attempts; attempt++) {
@@ -57,4 +59,10 @@ export function retry(opts: {
       throw last;
     },
   };
+  const backoffDescription = opts.backoff
+    ? (readDescription(opts.backoff)?.[0] ?? 'custom backoff')
+    : undefined;
+  return tagDescription(policy, [
+    `retry(${opts.attempts}${backoffDescription ? `, ${backoffDescription}` : ''})`,
+  ]);
 }

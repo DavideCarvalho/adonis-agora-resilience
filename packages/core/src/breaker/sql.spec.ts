@@ -69,6 +69,16 @@ class FakeSqlDriver implements SqlDriver {
       if (this.rows.delete(params[0] as string)) this.rowWrites += 1;
       return [];
     }
+    if (text.startsWith('SELECT key')) {
+      const limit = Number(/LIMIT (\d+)/.exec(text)?.[1]);
+      const pattern = String(params[0]);
+      const prefix = pattern.slice(0, -1).replace(/!(.)/g, '$1');
+      return [...this.rows.keys()]
+        .filter((key) => key.startsWith(prefix))
+        .sort()
+        .slice(0, limit)
+        .map((key) => ({ key }));
+    }
     if (text.startsWith('SELECT')) {
       const row = this.rows.get(params[0] as string);
       return row ? [{ ...row }] : [];

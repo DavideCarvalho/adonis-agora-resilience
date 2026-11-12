@@ -11,19 +11,29 @@ export type {
 export { CIRCUITS_DDL, SqlResilienceStore } from './breaker/sql.js';
 export type { CircuitState } from './breaker/state_machine.js';
 export { computeAdmit, computeRecord, INITIAL_CIRCUIT_STATE } from './breaker/state_machine.js';
-export type { ResilienceStore } from './breaker/store.js';
+export type { KeysQuery, ResilienceStore } from './breaker/store.js';
 export type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from './breaker/types.js';
 export type { Clock } from './clock.js';
 export { FakeClock, SystemClock, systemClock } from './clock.js';
 export { withResilience } from './decorator.js';
 export type { ResilienceConfig } from './define_config.js';
 export { defineConfig } from './define_config.js';
+export { describePolicy } from './describe.js';
 export { BrokenCircuitError, TimeoutError } from './errors.js';
-export type { EventSink, ResilienceEvent, ResilienceEventType } from './events.js';
+export type {
+  EventSink,
+  ResilienceEvent,
+  ResilienceEventType,
+  StatefulKind,
+} from './events.js';
 export { combineSinks } from './events.js';
 export { tenantSuffix } from './integration/context.js';
 export type { DiagnosticsSinkOptions } from './integration/diagnostics.js';
 export { defaultSanitizeError, diagnosticsSink } from './integration/diagnostics.js';
+export type {
+  ResilienceBusError,
+  ResilienceChannels,
+} from './integration/diagnostics_types.js';
 export type { EventEmitterLike } from './integration/event_emitter.js';
 export { eventEmitterSink, resilienceEventName } from './integration/event_emitter.js';
 export { type CircuitBreakerOptions, circuitBreaker } from './policies/circuit_breaker.js';
@@ -33,7 +43,15 @@ export { timeout } from './policies/timeout.js';
 export { wrap } from './policies/wrap.js';
 export type { Operation, Policy, PolicyContext } from './policy.js';
 export { rootContext } from './policy.js';
-export type { ResilienceServiceOptions } from './resilience_service.js';
+export type {
+  CircuitInfo,
+  CircuitsQuery,
+  PolicyDescription,
+  ResetOptions,
+  ResilienceLogger,
+  ResilienceServiceOptions,
+  StoreScope,
+} from './resilience_service.js';
 export { ResilienceService } from './resilience_service.js';
 export type {
   LucidStoreConfig,
@@ -55,3 +73,4 @@ export {
 } from './stores/lucid.js';
 export type { RedisLike, RedisResilienceStoreOptions } from './stores/redis.js';
 export { RedisResilienceStore, redisResilienceStore } from './stores/redis.js';
+export type { RecentEvent, RecentEventsQuery } from './visibility/recent_events.js';

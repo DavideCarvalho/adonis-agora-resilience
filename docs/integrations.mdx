@@ -14,26 +14,51 @@ Each state transition is a `ResilienceEvent` handed to an `EventSink`:
 
 ```ts
 type ResilienceEventType =
-  | 'circuit-opened' | 'circuit-closed' | 'circuit-half-open'
-  | 'short-circuited' | 'failover' | 'timeout' | 'retry'
+  | 'circuit-opened' | 'circuit-closed' | 'circuit-half-open' | 'circuit-reset'
+  | 'short-circuited' | 'failover' | 'timeout' | 'retry' | 'executed'
 
 interface ResilienceEvent {
   type: ResilienceEventType
   key?: string              // the breaker key, when applicable
+  policy?: string           // the named policy it happened in
   [extra: string]: unknown  // e.g. failover carries target / index / error
 }
 
 type EventSink = (event: ResilienceEvent) => void
 ```
 
-Every type in the union is emitted by the core policies today:
+What emits each type:
 
 - the **circuit breaker** emits `circuit-opened`, `circuit-closed`, `circuit-half-open` and `short-circuited`;
 - **failover** emits `failover` (carrying `target`, `index`, `error`);
 - the **timeout** policy emits `timeout` (carrying `ms`, the elapsed budget) when an operation exceeds its deadline;
-- the **retry** policy emits `retry` (carrying `attempt`, the 1-based number of the *upcoming* re-attempt, and `error`, the failure that triggered it) before each re-try.
+- the **retry** policy emits `retry` (carrying `attempt`, the 1-based number of the *upcoming* re-attempt, and `error`, the failure that triggered it) before each re-try;
+- `resilience.resetCircuit()` (and `circuit(key).reset()`) emits `circuit-reset` (carrying `store`, `previous`, and the `by` / `via` you pass);
+- a named policy emits `executed` after every call, when you turn it on (see below).
 
 `timeout` and `retry` fire only when a sink is wired to the policy, so they cost nothing when nobody is listening. Like the others, they flow through `diagnosticsSink()` as `agora:resilience:timeout` / `agora:resilience:retry`, and through the EventEmitter mirror as `resilience.timeout` / `resilience.retry`.
+
+### The policy name
+
+Every event of a policy run with `resilience.execute('stripe', op)` carries `policy: 'stripe'`, including `retry`, `timeout` and the breaker events. Inline policies (`execute(timeout(1_000), op)`) have no name, so the field is absent.
+
+### Call counts and error rates: `executed`
+
+Turn on `executedEvents` to get one `executed` event per call to a named policy, with the outcome, the time it took and how many attempts it needed:
+
+```ts title="config/resilience.ts"
+export default defineConfig({
+  executedEvents: true,
+  policies: { stripe: () => wrap(timeout(2_000), retry({ attempts: 3 })) },
+})
+```
+
+```ts
+// { type: 'executed', policy: 'stripe', ok: true, ms: 182.4, attempts: 2 }
+// { type: 'executed', policy: 'stripe', ok: false, ms: 2001, attempts: 3, error: { name, message } }
+```
+
+It is off by default because it is one event per call.
 
 ### Which policies get the service's sink
 
@@ -111,8 +136,33 @@ diagnosticsSink({
 </Callout>
 
 <Callout type="info">
-This is how circuit opens / failovers show up in [Telescope](/docs/telescope): resilience emits the events, diagnostics is the bus, and a Telescope watcher records them with `traceId` correlation. Resilience itself is not a dashboard — it only emits.
+This is how circuit opens / failovers show up in [Telescope](/docs/telescope): resilience emits the events, diagnostics is the bus, and a Telescope watcher records them with `traceId` correlation.
 </Callout>
+
+### Typed channels
+
+With `@adonis-agora/diagnostics` installed, the `agora:resilience:*` payloads are typed, so a listener reads `payload.key` or `payload.policy` without casting:
+
+```ts title="start/diagnostics.ts"
+import { onDiagnostic } from '@adonis-agora/diagnostics'
+import logger from '@adonisjs/core/services/logger'
+
+onDiagnostic('resilience', 'circuit-opened', ({ payload }) => {
+  logger.warn({ circuit: payload.key, policy: payload.policy }, 'circuit opened')
+})
+```
+
+With pnpm's default (strict) layout, add the augmentation once in your app so TypeScript picks it up:
+
+```ts title="types/resilience.ts"
+import type { ResilienceChannels } from '@adonis-agora/resilience'
+
+declare module '@adonis-agora/diagnostics' {
+  interface ChannelRegistry {
+    resilience: ResilienceChannels
+  }
+}
+```
 
 ## EventEmitter mirror
 

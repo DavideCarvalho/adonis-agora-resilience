@@ -1,4 +1,4 @@
-import type { ResilienceStore } from '../breaker/store.js';
+import type { KeysQuery, ResilienceStore } from '../breaker/store.js';
 import type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from '../breaker/types.js';
 import type { Clock } from '../clock.js';
 import { systemClock } from '../clock.js';
@@ -14,6 +14,8 @@ export interface RedisLike {
   defineCommand(name: string, definition: { numberOfKeys: number; lua: string }): void;
   hmget(key: string, ...fields: string[]): Promise<(string | null)[]>;
   del(key: string): Promise<unknown>;
+  /** Optional: `SCAN`, used to list keys. Without it the store cannot enumerate its keys. */
+  scan?(cursor: string | number, ...args: (string | number)[]): Promise<[string, string[]]>;
 }
 
 /** {@link RedisLike} augmented with the two Lua commands we register via `defineCommand`. */
@@ -125,11 +127,47 @@ export class RedisResilienceStore implements ResilienceStore {
     };
   }
 
+  async keys(opts: KeysQuery): Promise<string[]> {
+    return scanKeys(this.redis, this.prefix, opts);
+  }
+
   async reset(key: string): Promise<void> {
     // Deleting the hash resets the circuit: snapshot()/admit() see the closed defaults for a
     // missing key. Idempotent — DEL on an absent key is a no-op.
     await this.redis.del(this.k(key));
   }
+}
+
+/** Escape Redis glob metacharacters so a key prefix matches literally in `SCAN MATCH`. */
+function globEscape(value: string): string {
+  return value.replace(/[*?[\]\\]/g, (c) => `\\${c}`);
+}
+
+/**
+ * List the keys under `namespace` (+ the query prefix) with `SCAN`, stripping the namespace. Stops at
+ * `limit` (capped at 500) or when the cursor wraps. Empty when the client has no `scan`.
+ */
+export async function scanKeys(
+  redis: RedisLike,
+  namespace: string,
+  opts: KeysQuery,
+): Promise<string[]> {
+  if (typeof redis.scan !== 'function') return [];
+  const limit = Math.max(0, Math.min(500, Math.floor(opts.limit)));
+  const wanted = namespace + (opts.prefix ?? '');
+  const match = `${globEscape(wanted)}*`;
+  const out = new Set<string>();
+  let cursor = '0';
+  do {
+    const [next, batch] = await redis.scan(cursor, 'MATCH', match, 'COUNT', 200);
+    for (const raw of batch) {
+      if (out.size >= limit) break;
+      if (!raw.startsWith(wanted)) continue;
+      out.add(raw.slice(namespace.length));
+    }
+    cursor = String(next);
+  } while (cursor !== '0' && out.size < limit);
+  return [...out].sort();
 }
 
 /**

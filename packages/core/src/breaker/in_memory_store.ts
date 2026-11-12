@@ -5,7 +5,7 @@ import {
   computeRecord,
   INITIAL_CIRCUIT_STATE,
 } from './state_machine.js';
-import type { ResilienceStore } from './store.js';
+import type { KeysQuery, ResilienceStore } from './store.js';
 import type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from './types.js';
 
 export interface InMemoryResilienceStoreOptions {
@@ -106,6 +106,15 @@ export class InMemoryResilienceStore implements ResilienceStore {
       failures: e.failures,
       ...(e.openUntil ? { openUntil: e.openUntil } : {}),
     };
+  }
+
+  async keys(opts: KeysQuery): Promise<string[]> {
+    const out: string[] = [];
+    for (const key of this.map.keys()) {
+      if (out.length >= opts.limit) break;
+      if (opts.prefix === undefined || key.startsWith(opts.prefix)) out.push(key);
+    }
+    return out;
   }
 
   async reset(key: string): Promise<void> {

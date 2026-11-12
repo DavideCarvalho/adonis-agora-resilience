@@ -8,7 +8,7 @@ import { type StoreProvider, stores } from './stores/factory.js';
  * `default`/`stores` are configured.
  */
 export interface ResilienceConfig
-  extends Omit<ResilienceServiceOptions, 'stores' | 'defaultStore'> {
+  extends Omit<ResilienceServiceOptions, 'stores' | 'defaultStore' | 'logger'> {
   /**
    * Name of the store (a key of `stores`) used as the circuit-breaker store. Omit to use the
    * built-in in-memory store (or an explicit `store`).

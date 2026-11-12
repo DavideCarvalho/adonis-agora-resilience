@@ -5,7 +5,7 @@ import {
   computeRecord,
   INITIAL_CIRCUIT_STATE,
 } from './state_machine.js';
-import type { ResilienceStore } from './store.js';
+import type { KeysQuery, ResilienceStore } from './store.js';
 import type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from './types.js';
 
 /**
@@ -32,6 +32,7 @@ interface SqlStatements {
   updateState: string;
   closeIfDirty: string;
   deleteRow: string;
+  listKeys: (limit: number) => string;
 }
 
 /**
@@ -75,6 +76,12 @@ WHERE key = ${p(1)} AND (status <> 'closed' OR failures <> 0 OR open_until <> 0)
     deleteRow: `
 DELETE FROM resilience_circuits
 WHERE key = ${p(1)};`,
+    // List keys by prefix (LIKE with an explicit escape character). `limit` is a validated integer.
+    listKeys: (limit) => `
+SELECT key FROM resilience_circuits
+WHERE key LIKE ${p(1)} ESCAPE '!'
+ORDER BY key
+LIMIT ${limit};`,
   };
 }
 
@@ -87,6 +94,11 @@ function rowToState(row: Record<string, unknown> | undefined): CircuitState {
     openUntil: Number(row.open_until),
     probes: Number(row.probes),
   };
+}
+
+/** A `LIKE` pattern matching every key that starts with `prefix` (`!` escapes the wildcards). */
+export function likePrefix(prefix: string | undefined): string {
+  return `${(prefix ?? '').replace(/[!%_]/g, (c) => `!${c}`)}%`;
 }
 
 function sameState(a: CircuitState, b: CircuitState): boolean {
@@ -229,6 +241,13 @@ export class SqlResilienceStore implements ResilienceStore {
       failures: s.failures,
       ...(s.openUntil ? { openUntil: s.openUntil } : {}),
     };
+  }
+
+  async keys(opts: KeysQuery): Promise<string[]> {
+    const limit = Math.max(0, Math.min(10_000, Math.floor(opts.limit)));
+    if (limit === 0) return [];
+    const rows = await this.driver.read(this.stmts.listKeys(limit), [likePrefix(opts.prefix)]);
+    return rows.map((row) => String((row as Record<string, unknown>).key));
   }
 
   reset(key: string): Promise<void> {
