@@ -193,7 +193,7 @@ Event names are derived by `resilienceEventName(type)` — dots replace dashes, 
 
 ## Tenant-aware circuit keys
 
-In a multi-tenant app you usually want a circuit **per tenant** — one tenant's failing provider shouldn't trip the breaker for everyone. `tenantSuffix()` reads the current tenant id from [`@adonis-agora/context`](/docs/context) (via the shared slot `Symbol.for('@agora/context:accessor')`, returning `undefined` when context isn't present), so you can fold it into the key:
+In a multi-tenant app you usually want a circuit **per tenant** — one tenant's failing provider shouldn't trip the breaker for everyone. `tenantSuffix()` reads the current tenant id from [`@adonis-agora/context`](/docs/context) (the active tenant, e.g. the signed-in user's organization when tenancy is on; `undefined` when context isn't installed), so you can fold it into the key:
 
 ```ts
 import { circuitBreaker, tenantSuffix } from '@adonis-agora/resilience'
