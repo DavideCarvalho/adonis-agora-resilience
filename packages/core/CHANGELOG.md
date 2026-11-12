@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 1.0.0-rc.7
+
+### Minor Changes
+
+- [#150](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/150) [`79adcb5`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/79adcb5e36cd671d94a6953a0d707bf4c6f0032f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `schema` on the Lucid/SQL store (`stores.lucid({ connection: 'pg', schema: 'resilience' })`): the circuit, bulkhead and rate-limiter tables live in their own Postgres schema, created on first use with `CREATE SCHEMA IF NOT EXISTS`. Every statement names the schema, so nothing depends on `search_path` and it is safe behind PgBouncer in transaction mode; it works on any connection, including the app's transaction. `resilienceDdl({ schema })`, `circuitsDdl`/`bulkheadsDdl`/`rateLimitsDdl` and `ensureResilienceSchema(db, { schema })` build the DDL for it. SQLite with `schema` fails at boot. `agora:doctor --deep` reports whether the schema exists, holds the tables and is writable.
+
 ## 1.0.0-rc.6
 
 ### Minor Changes
