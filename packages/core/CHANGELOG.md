@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 1.0.0-rc.6
+
+### Minor Changes
+
+- [#148](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/148) [`fbab7ba`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/fbab7ba5f8548c6239dc45538834ae24f4390956) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `tenantSuffix()` returns the active tenant of `@adonis-agora/context`'s tenancy (for example the active organization) when tenancy is on, and the context's `tenantId` otherwise.
+
 ## 1.0.0-rc.5
 
 ### Minor Changes
