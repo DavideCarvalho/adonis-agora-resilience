@@ -1,5 +1,6 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import { InMemoryResilienceStore } from '../breaker/in_memory_store.js';
+import { SqlResilienceStore } from '../breaker/sql.js';
 import type { ResilienceConfig } from '../define_config.js';
 import { describePolicy } from '../describe.js';
 import { noopSink, withAmbient } from '../events.js';
@@ -48,6 +49,39 @@ function buildPolicies(config: ResilienceConfig) {
       return { name, error: error instanceof Error ? error.message : String(error) };
     }
   });
+}
+
+type SchemaReport = NonNullable<Awaited<ReturnType<SqlResilienceStore['inspectSchema']>>>;
+
+/**
+ * The schema report of a SQL store with a `schema`: `undefined` without one, `{ error }` added
+ * when the schema, a table or the write is missing. A failing lookup is left to the probes.
+ */
+async function schemaReport(
+  store: unknown,
+): Promise<SchemaReport | (SchemaReport & { error: true }) | undefined> {
+  if (!(store instanceof SqlResilienceStore)) return undefined;
+  const report = await store.inspectSchema().catch(() => undefined);
+  if (report === undefined) return undefined;
+  return !report.exists || report.missingTables.length > 0 || !report.writable
+    ? { ...report, error: true }
+    : report;
+}
+
+function schemaProblem(label: string, report: SchemaReport): AgoraDoctorResult {
+  const missing = !report.exists || report.missingTables.length > 0;
+  return {
+    status: 'error',
+    message: !report.exists
+      ? `${label}: schema "${report.schema}" does not exist`
+      : report.missingTables.length > 0
+        ? `${label}: ${report.missingTables.join(', ')} not in schema "${report.schema}"`
+        : `${label}: cannot write to schema "${report.schema}": ${report.writeError}`,
+    fix: missing
+      ? `Create the schema and tables (resilienceDdl({ schema: '${report.schema}' })), or leave autoCreateSchema on`
+      : `Grant the connection's role USAGE on schema "${report.schema}" and INSERT/UPDATE/DELETE on its resilience tables`,
+    docs: `${DOCS}/stores`,
+  };
 }
 
 /** The doctor checks of `@adonis-agora/resilience` (ids frozen for 1.x). */
@@ -136,11 +170,24 @@ export function resilienceDoctorChecks(): AgoraDoctorCheck[] {
         for (const name of targets) {
           const store = service.circuitStore(name);
           const label = name ?? 'default';
+          // With a `schema`, the schema report comes first: it names a missing schema or table
+          // instead of the query error the probes below would hit.
+          const report = await schemaReport(store);
+          if (report !== undefined && 'error' in report) {
+            out.push(schemaProblem(label, report));
+            continue;
+          }
           try {
             await store.snapshot('__doctor__');
             if (isBulkheadStore(store)) await store.bulkheadSnapshot('__doctor__');
             if (isRateLimitStore(store)) await store.rateLimitSnapshot('__doctor__');
-            out.push({ status: 'ok', message: `${label} answers` });
+            out.push({
+              status: 'ok',
+              message:
+                report === undefined
+                  ? `${label} answers`
+                  : `${label} answers (tables in schema "${report.schema}", writable)`,
+            });
           } catch (error) {
             out.push({
               status: 'error',

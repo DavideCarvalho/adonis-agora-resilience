@@ -160,6 +160,7 @@ interface LucidStoreConfig {
   clock?: Clock
   autoCreateSchema?: boolean  // default true — set false if you own the schema via a migration
   useRowLocks?: boolean       // override dialect auto-detection
+  schema?: string             // Postgres schema for the tables — see "Database schema" below
 }
 ```
 
@@ -253,6 +254,55 @@ The client type is `RedisLike`, a three-method structural slice (`defineCommand`
 </Tab>
 </Tabs>
 
+## Lucid: database schema
+
+By default the tables live in the connection's current schema (`public` on Postgres). To keep them in a schema of their own, pass `schema`:
+
+```ts title="config/resilience.ts"
+import { defineConfig, stores } from '@adonis-agora/resilience'
+
+export default defineConfig({
+  default: 'lucid',
+  stores: {
+    lucid: stores.lucid({ connection: 'pg', schema: 'resilience' }),
+  },
+})
+```
+
+Every statement the store sends names the schema (`"resilience"."resilience_circuits"`), so it works on any connection, including your own transaction. With `autoCreateSchema` on (the default), the first use runs `CREATE SCHEMA IF NOT EXISTS "resilience"` and creates the tables there. If the database role cannot create schemas, the store fails with a message naming the schema and the grant it needs; create the schema yourself or grant `CREATE` on the database.
+
+The name must be a plain identifier: letters, digits, `_` and `$`, not starting with a digit, at most 63 characters.
+
+<Callout type="warn">
+Don't put the tables in another schema with a Lucid connection that sets `searchPath`. Knex sends `SET search_path` on the session, and behind PgBouncer in transaction mode that setting leaks to other clients' connections. Use `schema` instead: it never touches `search_path`.
+</Callout>
+
+`schema` needs Postgres. On SQLite, which has no schemas, building the store with `schema` throws at boot instead of ignoring it.
+
+With `node ace agora:doctor --deep`, the `resilience.store-reachable` check also reports whether the schema exists, whether the three tables are in it, and whether the connection can write there.
+
+When you own the tables with a migration, create them in the schema and keep `schema` in the config:
+
+```ts title="database/migrations/XXXX_create_resilience_tables.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { resilienceDdl } from '@adonis-agora/resilience'
+
+export default class extends BaseSchema {
+  async up() {
+    // CREATE SCHEMA IF NOT EXISTS "resilience", then the three tables in it
+    for (const ddl of resilienceDdl({ schema: 'resilience' })) this.schema.raw(ddl)
+  }
+
+  async down() {
+    this.schema.withSchema('resilience').dropTable('resilience_rate_limits')
+    this.schema.withSchema('resilience').dropTable('resilience_bulkhead_leases')
+    this.schema.withSchema('resilience').dropTable('resilience_circuits')
+  }
+}
+```
+
+`ensureResilienceSchema(db, { schema: 'resilience' })` does the same from a script or a test setup.
+
 ## Lucid: migration over auto-create
 
 Auto-create is convenient, but in production you usually own the schema with a migration. Disable auto-create and run the DDL from a migration instead. The package exports the DDL for each table (`CIRCUITS_DDL`, `BULKHEADS_DDL`, `RATE_LIMITS_DDL`, all three in `RESILIENCE_DDL`), plus a helper that runs them:
@@ -322,7 +372,7 @@ export default defineConfig({
 ### `ensureResilienceSchema`
 
 ```ts
-ensureResilienceSchema(db: LucidQueryClient): Promise<void>
+ensureResilienceSchema(db: LucidQueryClient, opts?: { schema?: string }): Promise<void>
 ```
 
 Runs `RESILIENCE_DDL` (circuits, bulkhead slots, rate-limiter buckets) against the client you give it. It is idempotent (`CREATE TABLE IF NOT EXISTS`), so calling it repeatedly is harmless — handy in a test setup or a one-off script where a migration would be overkill:

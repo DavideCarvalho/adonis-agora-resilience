@@ -1,6 +1,9 @@
 import {
-  RESILIENCE_DDL,
+  assertSchemaName,
+  type ResilienceSchemaOptions,
+  resilienceDdl,
   type SqlDriver,
+  type SqlIdentifierQuote,
   SqlResilienceStore,
   type SqlResilienceStoreOptions,
   type SqlTx,
@@ -14,12 +17,15 @@ import type { ResilienceStore } from '../breaker/store.js';
  */
 export interface LucidQueryClient {
   rawQuery(sql: string, bindings?: readonly unknown[]): Promise<unknown>;
+  /** Present on a Lucid query or transaction client; used to detect the dialect. */
+  dialect?: { name?: string };
 }
 
 /**
  * The slice of a Lucid `Database` this store needs: a query client (via {@link LucidQueryClient})
  * plus the `transaction()` runner used for the breaker's atomic load→compute→persist cycle.
- * `connection()` is optional and used only to auto-detect the dialect.
+ * `connection()` (on the root `Database`) or `dialect` (on a query/transaction client) is optional and
+ * used only to auto-detect the dialect.
  */
 export interface LucidDatabase extends LucidQueryClient {
   transaction<T>(callback: (trx: LucidQueryClient) => Promise<T>): Promise<T>;
@@ -36,12 +42,36 @@ function dialectSupportsForUpdate(dialect: string | undefined): boolean {
   return !/sqlite/i.test(dialect);
 }
 
-/** Best-effort read of the default connection's dialect name; `undefined` if unavailable. */
-function detectDialect(db: LucidDatabase): string | undefined {
+/**
+ * Best-effort read of the client's dialect name (a query/transaction client carries `dialect`, the
+ * root `Database` exposes it through its default connection); `undefined` if unavailable.
+ */
+function detectDialect(
+  db: LucidQueryClient & Pick<LucidDatabase, 'connection'>,
+): string | undefined {
   try {
-    return db.connection?.()?.dialect?.name;
+    return db.dialect?.name ?? db.connection?.()?.dialect?.name;
   } catch {
     return undefined;
+  }
+}
+
+function identifierQuoteOf(dialect: string | undefined): SqlIdentifierQuote {
+  return dialect !== undefined && /mysql|maria/i.test(dialect) ? 'backtick' : 'double';
+}
+
+/**
+ * Checks a `schema` against the dialect: a valid identifier, and a dialect that has schemas (SQLite
+ * does not, and the store never falls back to unqualified names).
+ */
+function assertSchemaSupported(schema: string | undefined, dialect: string | undefined): void {
+  if (schema === undefined) return;
+  assertSchemaName(schema);
+  if (dialect !== undefined && /sqlite/i.test(dialect)) {
+    throw new Error(
+      `@adonis-agora/resilience: \`schema: "${schema}"\` needs Postgres or MySQL; SQLite has no ` +
+        'schemas. Remove `schema` from the Lucid store, or point it at a Postgres/MySQL connection.',
+    );
   }
 }
 
@@ -73,7 +103,11 @@ function toRows(result: unknown): unknown[] {
  * through to core, which generates the locking read with or without `FOR UPDATE` accordingly — this
  * adapter never rewrites SQL.
  */
-function lucidDriver(db: LucidDatabase, supportsForUpdate: boolean): SqlDriver {
+function lucidDriver(
+  db: LucidDatabase,
+  supportsForUpdate: boolean,
+  identifierQuote: SqlIdentifierQuote,
+): SqlDriver {
   const tx = (client: LucidQueryClient): SqlTx => ({
     run: async (sql, params) => {
       await client.rawQuery(sql, params);
@@ -84,6 +118,7 @@ function lucidDriver(db: LucidDatabase, supportsForUpdate: boolean): SqlDriver {
   return {
     placeholders: 'positional',
     lockRows: supportsForUpdate,
+    identifierQuote,
     transaction: (body) => db.transaction((trx) => body(tx(trx))),
     read: async (sql, params) => toRows(await db.rawQuery(sql, params)),
     run: async (sql, params) => {
@@ -97,9 +132,9 @@ function lucidDriver(db: LucidDatabase, supportsForUpdate: boolean): SqlDriver {
 
 export interface LucidResilienceStoreOptions extends SqlResilienceStoreOptions {
   /**
-   * When `true` (the default), the circuit table is created on first use via the idempotent
-   * {@link RESILIENCE_DDL}. Set to `false` if you manage the schema with an Adonis migration and want
-   * to skip the runtime `CREATE TABLE IF NOT EXISTS`.
+   * When `true` (the default), the tables (and the `schema`, when set and missing) are created on
+   * first use via the idempotent {@link resilienceDdl}. Set to `false` if you manage them with an
+   * Adonis migration and want to skip the runtime `CREATE TABLE IF NOT EXISTS`.
    */
   autoCreateSchema?: boolean;
   /**
@@ -119,18 +154,26 @@ export interface LucidResilienceStoreOptions extends SqlResilienceStoreOptions {
  */
 export class LucidResilienceStore extends SqlResilienceStore {
   private readonly autoCreateSchema: boolean;
-  private schemaReady?: Promise<void>;
+  private schemaReady: Promise<void> | undefined;
 
   constructor(db: LucidDatabase, opts: LucidResilienceStoreOptions = {}) {
-    const supportsForUpdate = opts.useRowLocks ?? dialectSupportsForUpdate(detectDialect(db));
-    super(lucidDriver(db, supportsForUpdate), opts);
+    const dialect = detectDialect(db);
+    assertSchemaSupported(opts.schema, dialect);
+    const supportsForUpdate = opts.useRowLocks ?? dialectSupportsForUpdate(dialect);
+    super(lucidDriver(db, supportsForUpdate, identifierQuoteOf(dialect)), opts);
     this.autoCreateSchema = opts.autoCreateSchema ?? true;
   }
 
   /** Ensure the table exists exactly once; concurrent callers share the same in-flight promise. */
   private ready(): Promise<void> {
     if (!this.autoCreateSchema) return Promise.resolve();
-    if (!this.schemaReady) this.schemaReady = this.ensureSchema();
+    if (!this.schemaReady) {
+      // A failed attempt (database down, missing grant) is retried on the next call.
+      this.schemaReady = this.ensureSchema().catch((error: unknown) => {
+        this.schemaReady = undefined;
+        throw error;
+      });
+    }
     return this.schemaReady;
   }
 
@@ -217,10 +260,18 @@ export function lucidResilienceStore(
 }
 
 /**
- * Run the circuit table DDL on the given Lucid client. Idempotent (`CREATE TABLE IF NOT EXISTS`),
- * so it is safe to call on every boot. Prefer a real Adonis migration in production; this helper
- * is handy for tests and quick setups. See {@link RESILIENCE_DDL} for use in migrations.
+ * Run the tables' DDL on the given Lucid client (a `Database`, a connection or a transaction).
+ * Idempotent (`CREATE … IF NOT EXISTS`), so it is safe to call on every boot. With `schema`, the
+ * schema (MySQL: database) is created too and every table lands in it. Prefer a real Adonis migration
+ * in production; this helper is handy for tests and quick setups. See {@link resilienceDdl}.
  */
-export async function ensureResilienceSchema(db: LucidQueryClient): Promise<void> {
-  for (const ddl of RESILIENCE_DDL) await db.rawQuery(ddl);
+export async function ensureResilienceSchema(
+  db: LucidQueryClient & Pick<LucidDatabase, 'connection'>,
+  opts: Pick<ResilienceSchemaOptions, 'schema'> = {},
+): Promise<void> {
+  const dialect = detectDialect(db);
+  assertSchemaSupported(opts.schema, dialect);
+  for (const ddl of resilienceDdl({ schema: opts.schema, quote: identifierQuoteOf(dialect) })) {
+    await db.rawQuery(ddl);
+  }
 }

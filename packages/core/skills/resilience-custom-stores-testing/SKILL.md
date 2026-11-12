@@ -155,7 +155,15 @@ any client with a `rawQuery` method — including a transaction client. With
 create `resilience_bulkhead_leases` and `resilience_rate_limits` in the same
 migration (`BULKHEADS_DDL` / `RATE_LIMITS_DDL`, together `RESILIENCE_DDL`).
 
+To keep the tables in their own Postgres schema, pass `schema` to the store
+(`stores.lucid({ connection: 'pg', schema: 'resilience' })`): every statement
+names `"resilience"."resilience_…"`, auto-create runs `CREATE SCHEMA IF NOT
+EXISTS` first, and a migration can run `resilienceDdl({ schema })`. Never use a
+connection with `searchPath` for this (it leaks behind PgBouncer). SQLite +
+`schema` throws at boot.
+
 Source: `docs/stores.mdx § "Lucid: migration over auto-create"`,
+`docs/stores.mdx § "Lucid: database schema"`,
 `packages/core/src/stores/lucid.ts`.
 
 ### Pattern 3 — a custom engine by reuse tier
