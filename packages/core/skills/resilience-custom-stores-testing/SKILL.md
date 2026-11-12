@@ -2,7 +2,8 @@
 name: resilience-custom-stores-testing
 description: >-
   Choose, build and test circuit-breaker stores for @adonis-agora/resilience.
-  Covers the ResilienceStore contract (admit/record/snapshot/reset) with
+  Covers the ResilienceStore contract (admit/record/snapshot/reset, optional
+  keys({ prefix, limit })) with
   Admission/BreakerConfig/CircuitSnapshot, config-driven stores.memory()/
   stores.lucid({ connection })/stores.redis({ connection }) in config/resilience.ts
   where EVERY listed store is built at boot, CIRCUITS_DDL + ensureResilienceSchema +
@@ -41,6 +42,7 @@ interface ResilienceStore {
   record(key: string, cfg: BreakerConfig, ok: boolean, probe: boolean): Promise<CircuitStatus>
   snapshot(key: string): Promise<CircuitSnapshot>              // read-only inspect
   reset(key: string): Promise<void>                            // back to closed
+  keys?(opts: KeysQuery): Promise<string[]>                    // optional listing for circuits()
 }
 ```
 

@@ -4,9 +4,11 @@ description: >-
   Apply resilience policies to async class methods declaratively with the
   @withResilience method decorator from @adonis-agora/resilience — argument order
   mirrors wrap (outermost first), this/arguments/return type are preserved, only
-  async methods can be decorated, circuitBreaker needs an explicit store because
-  decorators run at class-definition time (InMemoryResilienceStore,
-  lucidResilienceStore(db), or resilience.circuitStore()), and a decorator timeout
+  async methods can be decorated, an omitted circuitBreaker store falls back to a
+  shared process-wide memory store because decorators run at class-definition time
+  outside any named-policy factory (pass an InMemoryResilienceStore,
+  lucidResilienceStore(db), or resilience.circuitStore() instance for shared or
+  fleet-wide state), and a decorator timeout
   rejects with TimeoutError but cannot abort the transport — prefer
   ResilienceService.execute when ctx.signal must reach fetch. Use when attaching
   fixed retry/circuit-breaker policies to a client method instead of wrapping
@@ -102,10 +104,12 @@ Only **async** methods can be decorated — the policies are promise-based.
 
 Source: `docs/decorator.mdx § "The method shape"`.
 
-### Pattern 3 — give the breaker a real store at module scope
+### Pattern 3 — give the breaker a shared store at module scope
 
-A decorator runs at class-definition time, so there is no per-request container
-to resolve a store from: pass an explicit one. Reuse the app's configured store
+A decorator runs at class-definition time, outside any named-policy factory, so
+a config store name will not resolve there and an omitted store falls back to
+the shared process-wide in-memory store: pass an explicit store instance for
+shared or fleet-wide state. Reuse the app's configured store
 via the service singleton so config stays the single source of truth:
 
 ```ts
@@ -198,13 +202,13 @@ built on.
 
 Source: `docs/decorator.mdx § "The method shape"`
 
-### HIGH Omitting `store` on a decorated `circuitBreaker`
+### MEDIUM Assuming an omitted `store` is the config default or fleet-wide
 
 Wrong:
 
 ```ts
 @withResilience(circuitBreaker({ key: 'pay', threshold: 5, cooldownMs: 30_000 }))
-async pay() {} // no store — nothing defines where breaker state lives
+async pay() {} // only shares state with other omitted-store breakers in this process
 ```
 
 Correct:
@@ -221,13 +225,16 @@ class PaymentClient {
 }
 ```
 
-Mechanism: the breaker has no implicit module-wide store — `store` is a required
-option of `circuitBreaker`, and a class-definition-time decorator has no
-container to resolve one from; omitting it breaks the pipeline instead of
-falling back to anything.
+Mechanism: `store` is optional (`store?: ResilienceStore | string`); outside a
+named-policy factory an omitted store falls back to the shared process-wide
+in-memory store, and a store *name* only resolves inside a named-policy
+factory — a class-definition-time decorator has no container to resolve one
+from. Pass an explicit instance when the breaker must share the configured or
+fleet-wide state.
 
 Source: `docs/decorator.mdx § "Providing a store"`,
-`packages/core/src/policies/circuit_breaker.ts` (`store: ResilienceStore` required)
+`packages/core/src/policies/circuit_breaker.ts` (`store?: ResilienceStore | string`),
+`packages/core/src/stores/resolve.ts` (`processMemoryStore` fallback)
 
 ### HIGH Tension: decorator ergonomics vs observability
 
