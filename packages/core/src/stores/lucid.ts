@@ -1,5 +1,5 @@
 import {
-  CIRCUITS_DDL,
+  RESILIENCE_DDL,
   type SqlDriver,
   SqlResilienceStore,
   type SqlResilienceStoreOptions,
@@ -98,7 +98,7 @@ function lucidDriver(db: LucidDatabase, supportsForUpdate: boolean): SqlDriver {
 export interface LucidResilienceStoreOptions extends SqlResilienceStoreOptions {
   /**
    * When `true` (the default), the circuit table is created on first use via the idempotent
-   * {@link CIRCUITS_DDL}. Set to `false` if you manage the schema with an Adonis migration and want
+   * {@link RESILIENCE_DDL}. Set to `false` if you manage the schema with an Adonis migration and want
    * to skip the runtime `CREATE TABLE IF NOT EXISTS`.
    */
   autoCreateSchema?: boolean;
@@ -154,6 +154,51 @@ export class LucidResilienceStore extends SqlResilienceStore {
     return super.keys(...args);
   }
 
+  override async acquireBulkhead(...args: Parameters<SqlResilienceStore['acquireBulkhead']>) {
+    await this.ready();
+    return super.acquireBulkhead(...args);
+  }
+
+  override async releaseBulkhead(...args: Parameters<SqlResilienceStore['releaseBulkhead']>) {
+    await this.ready();
+    return super.releaseBulkhead(...args);
+  }
+
+  override async bulkheadSnapshot(...args: Parameters<SqlResilienceStore['bulkheadSnapshot']>) {
+    await this.ready();
+    return super.bulkheadSnapshot(...args);
+  }
+
+  override async resetBulkhead(...args: Parameters<SqlResilienceStore['resetBulkhead']>) {
+    await this.ready();
+    return super.resetBulkhead(...args);
+  }
+
+  override async bulkheadKeys(...args: Parameters<SqlResilienceStore['bulkheadKeys']>) {
+    await this.ready();
+    return super.bulkheadKeys(...args);
+  }
+
+  override async consumeRateLimit(...args: Parameters<SqlResilienceStore['consumeRateLimit']>) {
+    await this.ready();
+    return super.consumeRateLimit(...args);
+  }
+
+  override async rateLimitSnapshot(...args: Parameters<SqlResilienceStore['rateLimitSnapshot']>) {
+    await this.ready();
+    return super.rateLimitSnapshot(...args);
+  }
+
+  override async resetRateLimit(...args: Parameters<SqlResilienceStore['resetRateLimit']>) {
+    await this.ready();
+    return super.resetRateLimit(...args);
+  }
+
+  override async rateLimitKeys(...args: Parameters<SqlResilienceStore['rateLimitKeys']>) {
+    await this.ready();
+    return super.rateLimitKeys(...args);
+  }
+
   override async reset(...args: Parameters<SqlResilienceStore['reset']>) {
     await this.ready();
     return super.reset(...args);
@@ -167,15 +212,15 @@ export class LucidResilienceStore extends SqlResilienceStore {
 export function lucidResilienceStore(
   db: LucidDatabase,
   opts: LucidResilienceStoreOptions = {},
-): ResilienceStore {
+): LucidResilienceStore {
   return new LucidResilienceStore(db, opts);
 }
 
 /**
  * Run the circuit table DDL on the given Lucid client. Idempotent (`CREATE TABLE IF NOT EXISTS`),
  * so it is safe to call on every boot. Prefer a real Adonis migration in production; this helper
- * is handy for tests and quick setups. See {@link CIRCUITS_DDL} for use in migrations.
+ * is handy for tests and quick setups. See {@link RESILIENCE_DDL} for use in migrations.
  */
 export async function ensureResilienceSchema(db: LucidQueryClient): Promise<void> {
-  await db.rawQuery(CIRCUITS_DDL);
+  for (const ddl of RESILIENCE_DDL) await db.rawQuery(ddl);
 }

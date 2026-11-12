@@ -1,8 +1,27 @@
+import { randomUUID } from 'node:crypto';
 import type { KeysQuery, ResilienceStore } from '../breaker/store.js';
 import type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from '../breaker/types.js';
 import type { Clock } from '../clock.js';
 import { systemClock } from '../clock.js';
-import { ADMIT_LUA, RECORD_LUA } from './redis_lua.js';
+import { bucketCapacity, bucketTtlMs, refillRate } from '../limits/token_bucket.js';
+import type {
+  BulkheadAdmission,
+  BulkheadConfig,
+  BulkheadSnapshot,
+  BulkheadStore,
+  RateLimitConfig,
+  RateLimitDecision,
+  RateLimitSnapshot,
+  RateLimitStore,
+} from '../limits/types.js';
+import {
+  ADMIT_LUA,
+  BULKHEAD_ACQUIRE_LUA,
+  BULKHEAD_COUNT_LUA,
+  BULKHEAD_RELEASE_LUA,
+  RATE_LIMIT_LUA,
+  RECORD_LUA,
+} from './redis_lua.js';
 
 /**
  * The slice of an ioredis client this store relies on. Both a raw `ioredis` instance and an
@@ -30,7 +49,33 @@ interface WithCommands extends RedisLike {
     cooldownMs: number,
     ttlMs: number,
   ): Promise<string>;
+  rlBulkheadAcquire(
+    key: string,
+    now: number,
+    limit: number,
+    leaseMs: number,
+    leaseId: string,
+  ): Promise<[number, number]>;
+  rlBulkheadRelease(key: string, leaseId: string): Promise<number>;
+  rlBulkheadCount(key: string, now: number): Promise<number>;
+  rlRateLimit(
+    key: string,
+    now: number,
+    rate: string,
+    capacity: number,
+    cost: number,
+    ttlMs: number,
+  ): Promise<[number, string, string]>;
 }
+
+const COMMANDS: Record<string, string> = {
+  cbAdmit: ADMIT_LUA,
+  cbRecord: RECORD_LUA,
+  rlBulkheadAcquire: BULKHEAD_ACQUIRE_LUA,
+  rlBulkheadRelease: BULKHEAD_RELEASE_LUA,
+  rlBulkheadCount: BULKHEAD_COUNT_LUA,
+  rlRateLimit: RATE_LIMIT_LUA,
+};
 
 export interface RedisResilienceStoreOptions {
   /** Clock used for `now()` / cooldown math. Defaults to the system clock. */
@@ -46,9 +91,15 @@ export interface RedisResilienceStoreOptions {
    * pass `0`) to keep circuit state forever.
    */
   ttlMs?: number;
+  /** Key namespace for bulkhead slots. Defaults to `agora:resilience:bulkhead:`. */
+  bulkheadPrefix?: string;
+  /** Key namespace for rate-limiter buckets. Defaults to `agora:resilience:rate-limit:`. */
+  rateLimitPrefix?: string;
 }
 
 const DEFAULT_PREFIX = 'agora:resilience:circuit:';
+const DEFAULT_BULKHEAD_PREFIX = 'agora:resilience:bulkhead:';
+const DEFAULT_RATE_LIMIT_PREFIX = 'agora:resilience:rate-limit:';
 
 /**
  * Distributed circuit-breaker {@link ResilienceStore} backed by Redis. Per-circuit state lives in a
@@ -59,8 +110,10 @@ const DEFAULT_PREFIX = 'agora:resilience:circuit:';
  * The Lua branching mirrors core's pure `computeAdmit` / `computeRecord`, so a Redis-backed circuit
  * behaves identically to the in-memory and SQL stores and passes the same `runResilienceStoreContract`.
  */
-export class RedisResilienceStore implements ResilienceStore {
+export class RedisResilienceStore implements ResilienceStore, BulkheadStore, RateLimitStore {
   private readonly redis: WithCommands;
+  private readonly bulkheadPrefix: string;
+  private readonly rateLimitPrefix: string;
   private readonly clock: Clock;
   private readonly prefix: string;
   private readonly ttlMs: number;
@@ -70,12 +123,14 @@ export class RedisResilienceStore implements ResilienceStore {
     this.clock = opts.clock ?? systemClock;
     this.prefix = opts.keyPrefix ?? DEFAULT_PREFIX;
     this.ttlMs = opts.ttlMs && opts.ttlMs > 0 ? opts.ttlMs : 0;
+    this.bulkheadPrefix = opts.bulkheadPrefix ?? DEFAULT_BULKHEAD_PREFIX;
+    this.rateLimitPrefix = opts.rateLimitPrefix ?? DEFAULT_RATE_LIMIT_PREFIX;
     // Register the scripts once per client (idempotent: skip if already defined on this connection).
-    if (typeof this.redis.cbAdmit !== 'function') {
-      this.redis.defineCommand('cbAdmit', { numberOfKeys: 1, lua: ADMIT_LUA });
-    }
-    if (typeof this.redis.cbRecord !== 'function') {
-      this.redis.defineCommand('cbRecord', { numberOfKeys: 1, lua: RECORD_LUA });
+    const client = this.redis as unknown as Record<string, unknown>;
+    for (const [name, lua] of Object.entries(COMMANDS)) {
+      if (typeof client[name] !== 'function') {
+        this.redis.defineCommand(name, { numberOfKeys: 1, lua });
+      }
     }
   }
 
@@ -131,6 +186,79 @@ export class RedisResilienceStore implements ResilienceStore {
     return scanKeys(this.redis, this.prefix, opts);
   }
 
+  // ── bulkheads ──────────────────────────────────────────────────────────────────────────────
+
+  async acquireBulkhead(key: string, cfg: BulkheadConfig): Promise<BulkheadAdmission> {
+    const leaseId = randomUUID();
+    const [acquired, active] = await this.redis.rlBulkheadAcquire(
+      this.bulkheadPrefix + key,
+      this.clock.now(),
+      cfg.limit,
+      cfg.leaseMs,
+      leaseId,
+    );
+    return acquired === 1
+      ? { acquired: true, leaseId, active: Number(active) }
+      : { acquired: false, active: Number(active) };
+  }
+
+  async releaseBulkhead(key: string, leaseId: string): Promise<void> {
+    await this.redis.rlBulkheadRelease(this.bulkheadPrefix + key, leaseId);
+  }
+
+  async bulkheadSnapshot(key: string): Promise<BulkheadSnapshot> {
+    const active = await this.redis.rlBulkheadCount(this.bulkheadPrefix + key, this.clock.now());
+    return { active: Number(active) };
+  }
+
+  async resetBulkhead(key: string): Promise<void> {
+    await this.redis.del(this.bulkheadPrefix + key);
+  }
+
+  bulkheadKeys(opts: KeysQuery): Promise<string[]> {
+    return scanKeys(this.redis, this.bulkheadPrefix, opts);
+  }
+
+  // ── rate limiters ──────────────────────────────────────────────────────────────────────────
+
+  async consumeRateLimit(
+    key: string,
+    cfg: RateLimitConfig,
+    cost: number,
+  ): Promise<RateLimitDecision> {
+    const [allowed, tokens, retry] = await this.redis.rlRateLimit(
+      this.rateLimitPrefix + key,
+      this.clock.now(),
+      String(refillRate(cfg)),
+      bucketCapacity(cfg),
+      cost,
+      bucketTtlMs(cfg),
+    );
+    return {
+      allowed: Number(allowed) === 1,
+      remaining: Math.floor(Number(tokens)),
+      retryAfterMs: Number(retry),
+    };
+  }
+
+  async rateLimitSnapshot(key: string): Promise<RateLimitSnapshot> {
+    const [tokens, updatedAt] = await this.redis.hmget(
+      this.rateLimitPrefix + key,
+      'tokens',
+      'updatedAt',
+    );
+    if (tokens == null || updatedAt == null) return {};
+    return { tokens: Number(tokens), updatedAt: Number(updatedAt) };
+  }
+
+  async resetRateLimit(key: string): Promise<void> {
+    await this.redis.del(this.rateLimitPrefix + key);
+  }
+
+  rateLimitKeys(opts: KeysQuery): Promise<string[]> {
+    return scanKeys(this.redis, this.rateLimitPrefix, opts);
+  }
+
   async reset(key: string): Promise<void> {
     // Deleting the hash resets the circuit: snapshot()/admit() see the closed defaults for a
     // missing key. Idempotent — DEL on an absent key is a no-op.
@@ -178,6 +306,6 @@ export async function scanKeys(
 export function redisResilienceStore(
   redis: RedisLike,
   opts: RedisResilienceStoreOptions = {},
-): ResilienceStore {
+): RedisResilienceStore {
   return new RedisResilienceStore(redis, opts);
 }

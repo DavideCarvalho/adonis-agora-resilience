@@ -139,8 +139,9 @@ describe('RedisResilienceStore (ioredis-mock)', () => {
     redisResilienceStore(redis);
     const after = redisResilienceStore(redis); // second store on same connection
     expect(after).toBeDefined();
-    // Two commands registered by the first store; the second sees them already defined and skips.
-    expect(spy).toHaveBeenCalledTimes(2);
+    // Six commands (circuits, bulkheads, rate limits) registered by the first store; the second
+    // sees them already defined and skips.
+    expect(spy).toHaveBeenCalledTimes(6);
   });
 
   it('probe success closes fleet-wide; probe failure re-opens', async () => {

@@ -71,7 +71,7 @@ const driver: SqlDriver = {
 }
 
 const store = new SqlResilienceStore(driver)
-await store.ensureSchema() // runs CIRCUITS_DDL — idempotent CREATE TABLE IF NOT EXISTS
+await store.ensureSchema() // runs RESILIENCE_DDL — idempotent CREATE TABLE IF NOT EXISTS
 ```
 
 The full contract:
@@ -101,7 +101,9 @@ new SqlResilienceStore(driver: SqlDriver, opts?: SqlResilienceStoreOptions)
 ```
 
 <Callout type="info">
-The table is a single, five-column schema — `key`, `status`, `failures`, `open_until`, `probes` — shared by every SQL adapter. `store.ensureSchema()` runs the idempotent `CIRCUITS_DDL`; if you own the schema through a migration instead, skip that call. The columns are identical to the ones the [Lucid migration](/docs/resilience/stores#lucid-migration-over-auto-create) creates, because both go through `CIRCUITS_DDL`.
+The circuit table is a single, five-column schema — `key`, `status`, `failures`, `open_until`, `probes` — shared by every SQL adapter, next to the bulkhead-slot and rate-limiter tables. `store.ensureSchema()` runs the idempotent `RESILIENCE_DDL`; if you own the schema through a migration instead, skip that call. The tables are identical to the ones the [Lucid migration](/docs/resilience/stores#lucid-migration-over-auto-create) creates, because both go through the same DDL.
+
+A `SqlResilienceStore` (and so your adapter) also backs [`bulkhead`](/docs/resilience/policies#bulkhead) and [`rateLimiter`](/docs/resilience/policies#ratelimiter); a store written from scratch opts into them by implementing `BulkheadStore` / `RateLimitStore`, checked by `runBulkheadStoreContract` / `runRateLimitStoreContract` from `@adonis-agora/resilience/testing`.
 </Callout>
 
 Everything about the transitions — when a circuit opens, how the half-open probe is granted, the cooldown math — lives inside `SqlResilienceStore` (via the state machine below). Your driver is pure plumbing.
