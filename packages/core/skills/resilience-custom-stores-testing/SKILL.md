@@ -229,7 +229,10 @@ Source: `docs/custom-store.mdx` (all tiers + "Wiring it in"),
 
 Every custom store must pass the same suite the built-ins do; it registers a
 Vitest `describe` block covering the transition table and the invariant that N
-concurrent `admit` calls in half-open yield exactly one probe. The factory
+concurrent `admit` calls in half-open yield exactly one probe. A store
+implementing `BulkheadStore` / `RateLimitStore` passes
+`runBulkheadStoreContract` / `runRateLimitStoreContract` from the same
+`@adonis-agora/resilience/testing` entrypoint the same way. The factory
 receives a `Clock` the suite controls — thread it into your store:
 
 ```ts
@@ -377,7 +380,9 @@ runResilienceStoreContract('MyLuaStore', (clock: Clock) => new MyLuaStore(clock)
 Mechanism: a Tier-3 (server-side) implementation must stay byte-for-byte faithful
 to `computeAdmit`/`computeRecord`, and the shared suite is the only guard against
 drift — it hammers atomicity and the transition table exactly like the built-in
-Lucid/Redis adapters are verified.
+Lucid/Redis adapters are verified. The same holds for bulkhead slots and
+rate-limiter budgets: cover those with `runBulkheadStoreContract` /
+`runRateLimitStoreContract`.
 
 Source: `docs/custom-store.mdx Callout "You are now the source-of-truth twin"` +
 `§ "Validate against the contract suite"`
