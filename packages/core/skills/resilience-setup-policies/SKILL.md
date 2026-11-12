@@ -27,8 +27,8 @@ sources:
 
 # Setup, config and the ResilienceService
 
-`@adonis-agora/resilience` gives AdonisJS 7 apps timeout, retry, circuit breaker
-and ordered failover. Policies compose as plain functions — no AdonisJS required —
+`@adonis-agora/resilience` gives AdonisJS 7 apps timeout, retry, circuit breaker,
+bulkhead, rate limiter and ordered failover. Policies compose as plain functions — no AdonisJS required —
 or register once in `config/resilience.ts` and get called through the
 container-resolved `ResilienceService`. Every policy exposes `execute(op)`; the
 operation receives a `PolicyContext` of `{ signal, attempt }`.
@@ -52,7 +52,7 @@ and writes `config/resilience.ts`:
 import { defineConfig, stores, wrap, timeout, retry, exponential } from '@adonis-agora/resilience'
 
 export default defineConfig({
-  // The circuit-breaker store. `memory` is in-process; see Stores for Lucid/Redis.
+  // The resilience store (circuits, bulkheads, rate limiters). `memory` is in-process; see Stores for Lucid/Redis.
   default: 'memory',
   stores: {
     memory: stores.memory(),

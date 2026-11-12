@@ -39,6 +39,7 @@ interface ResilienceStore {
   record(key: string, cfg: BreakerConfig, ok: boolean, probe: boolean): Promise<CircuitStatus>
   snapshot(key: string): Promise<CircuitSnapshot>              // read-only inspect
   reset(key: string): Promise<void>                            // back to closed
+  keys?(opts: KeysQuery): Promise<string[]>                    // optional, for listings
 }
 ```
 
@@ -116,9 +117,24 @@ export default class extends BaseSchema {
       table.bigInteger('open_until').notNullable().defaultTo(0)
       table.integer('probes').notNullable().defaultTo(0)
     })
+
+    // only needed when you use bulkhead() / rateLimiter() on this store
+    this.schema.createTable('resilience_bulkhead_leases', (table) => {
+      table.text('key').notNullable()
+      table.text('lease_id').notNullable()
+      table.bigInteger('expires_at').notNullable()
+      table.primary(['key', 'lease_id'])
+    })
+    this.schema.createTable('resilience_rate_limits', (table) => {
+      table.text('key').primary()
+      table.double('tokens').notNullable()
+      table.bigInteger('updated_at').notNullable()
+    })
   }
 
   async down() {
+    this.schema.dropTable('resilience_rate_limits')
+    this.schema.dropTable('resilience_bulkhead_leases')
     this.schema.dropTable('resilience_circuits')
   }
 }
@@ -227,8 +243,10 @@ Source: `docs/custom-store.mdx` (all tiers + "Wiring it in"),
 
 Every custom store must pass the same suite the built-ins do; it registers a
 Vitest `describe` block covering the transition table and the invariant that N
-concurrent `admit` calls in half-open yield exactly one probe. The factory
-receives a `Clock` the suite controls — thread it into your store:
+concurrent `admit` calls in half-open yield exactly one probe. Bulkhead and
+rate-limiter backends pass `runBulkheadStoreContract` / `runRateLimitStoreContract`
+instead (same `(clock) => store` shape). The factory receives a `Clock` the
+suite controls — thread it into your store:
 
 ```ts
 // my-store.contract.spec.ts
@@ -236,6 +254,14 @@ import { runResilienceStoreContract } from '@adonis-agora/resilience/testing'
 import { MyResilienceStore } from './my-store.js'
 
 runResilienceStoreContract('MyResilienceStore', (clock) => new MyResilienceStore({ clock }))
+```
+
+```ts
+// bulkhead / rate-limiter backends:
+import { runBulkheadStoreContract, runRateLimitStoreContract } from '@adonis-agora/resilience/testing'
+
+runBulkheadStoreContract('MyBulkheadStore', (clock) => new MyBulkheadStore({ clock }))
+runRateLimitStoreContract('MyRateLimitStore', (clock) => new MyRateLimitStore({ clock }))
 ```
 
 The same clock seam makes policy timing deterministic — `timeout`, `retry`, and
@@ -375,7 +401,8 @@ runResilienceStoreContract('MyLuaStore', (clock: Clock) => new MyLuaStore(clock)
 Mechanism: a Tier-3 (server-side) implementation must stay byte-for-byte faithful
 to `computeAdmit`/`computeRecord`, and the shared suite is the only guard against
 drift — it hammers atomicity and the transition table exactly like the built-in
-Lucid/Redis adapters are verified.
+Lucid/Redis adapters are verified. Bulkhead and rate-limiter backends need the
+matching guard instead: `runBulkheadStoreContract` / `runRateLimitStoreContract`.
 
 Source: `docs/custom-store.mdx Callout "You are now the source-of-truth twin"` +
 `§ "Validate against the contract suite"`
