@@ -1,4 +1,5 @@
 import { type Clock, systemClock } from '../clock.js';
+import { formatMs, tagDescription } from '../describe.js';
 import { TimeoutError } from '../errors.js';
 import { type EventSink, policySink } from '../events.js';
 import { type Operation, type Policy, type PolicyContext, rootContext } from '../policy.js';
@@ -6,7 +7,7 @@ import { type Operation, type Policy, type PolicyContext, rootContext } from '..
 export function timeout(ms: number, opts: { clock?: Clock; onEvent?: EventSink } = {}): Policy {
   const clock = opts.clock ?? systemClock;
   const onEvent = policySink(opts.onEvent);
-  return {
+  const policy: Policy = {
     execute<T>(op: Operation<T>, parent: PolicyContext = rootContext()): Promise<T> {
       const ac = new AbortController();
       const onParentAbort = () => ac.abort(parent.signal.reason);
@@ -52,4 +53,5 @@ export function timeout(ms: number, opts: { clock?: Clock; onEvent?: EventSink }
       return Promise.race([pending, aborted]).finally(cleanup);
     },
   };
+  return tagDescription(policy, [`timeout(${formatMs(ms)})`]);
 }

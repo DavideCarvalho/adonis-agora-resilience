@@ -35,6 +35,7 @@ interface ResilienceConfig {
   store?: ResilienceStore                 // explicit store — wins over default/stores; else InMemory
   policies?: Record<string, () => Policy> // named policies for ResilienceService.execute
   emit?: boolean                          // default: true — emit diagnostics events
+  executedEvents?: boolean                // default: false — one `executed` event per named call
   eventEmitter?: EventEmitterLike         // mirror events to an EventEmitter2-style emitter
 }
 ```
@@ -186,8 +187,13 @@ export default class InventoryService {
 | `execute(name \| policy, op)` | run a named policy (resolved from config) or an inline `Policy` |
 | `failover(opts)` | the [`failover`](/docs/resilience/policies#failover) primitive, wired to the service's event sink |
 | `circuitStore(name?)` | the configured store — the default one with no argument, or the entry under that key in `stores` |
-| `circuit(key).snapshot()` | read the current `CircuitSnapshot` (`status`, `failures`, `openUntil?`) |
-| `circuit(key).reset()` | force a circuit back to closed |
+| `circuit(key, store?).snapshot()` | read the current `CircuitSnapshot` (`status`, `failures`, `openUntil?`) |
+| `circuit(key, store?).reset()` | force a circuit back to closed |
+| `resetCircuit(key, { store?, by?, via? })` | reset, log an audit line, emit `circuit-reset`, return the circuit |
+| `circuits({ store?, status?, prefix?, limit? })` | list circuits with their live state, open first |
+| `getCircuit(key, store?)` | one circuit with its live state |
+| `policyNames()` / `describePolicies()` | the named policies and what each is made of |
+| `recentEvents({ type?, key?, policy?, limit? })` | the last events of this process, newest first |
 
 `circuitStore()` is how you point a hand-built breaker at a store from your config, instead of constructing a second one that tracks its own, separate circuits:
 
@@ -202,4 +208,63 @@ circuitBreaker({ key: 'payments', store: resilience.circuitStore(), threshold: 5
 circuitBreaker({ key: 'search', store: resilience.circuitStore('redis'), threshold: 3, cooldownMs: 10_000 })
 ```
 
+In a policy registered under `policies`, you can also name the store, or leave it out to use the default one:
+
+```ts title="config/resilience.ts"
+policies: {
+  payments: () => circuitBreaker({ key: 'payments', threshold: 5, cooldownMs: 30_000 }),            // default store
+  search: () => circuitBreaker({ key: 'search', store: 'redis', threshold: 3, cooldownMs: 10_000 }),  // config.stores.redis
+}
+```
+
+A breaker built outside the service without a `store` keeps its state in one in-memory store shared by the whole process.
+
 An unknown name throws `Unknown resilience store "x".`, and `execute('unknown')` throws `Unknown resilience policy "unknown".` if the name isn't registered. The service also exposes its configured `store` and `sink` as readonly properties — `store` is the same object `circuitStore()` returns.
+
+## Inspecting circuits and policies
+
+The service lists what it knows, which is handy for an internal status endpoint or an admin command. `circuits()` returns every circuit the store holds (Memory, Redis and Lucid stores can list their keys) plus the ones this process used, with their live state:
+
+```ts title="app/controllers/admin/resilience_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import resilience from '@adonis-agora/resilience/services/main'
+
+export default class ResilienceController {
+  async index({ response }: HttpContext) {
+    return response.ok({
+      circuits: await resilience.circuits({ status: 'open' }),
+      policies: resilience.describePolicies(),
+      recent: resilience.recentEvents({ limit: 20 }),
+    })
+  }
+
+  async reset({ params, auth, response }: HttpContext) {
+    const circuit = await resilience.resetCircuit(params.key, { by: `user:${auth.user!.id}`, via: 'admin' })
+    return response.ok(circuit)
+  }
+}
+```
+
+Each circuit reads like this:
+
+```ts
+{
+  key: 'payments',
+  store: 'redis',          // the name from config.stores
+  policy: 'payments',      // the named policy that used it, when known
+  status: 'open',
+  failures: 5,
+  openUntil: 1762900000000,
+  scope: 'cluster',        // 'process' for the memory store: this process only
+  threshold: 5,
+  cooldownMs: 30000,
+}
+```
+
+`describePolicies()` returns one line per building block:
+
+```ts
+[{ name: 'payments', kinds: ['timeout(2s)', 'retry(3, exp 200ms)', 'circuit-breaker(key=payments, threshold=5, cooldown=30s)'] }]
+```
+
+`recentEvents()` reads the last 200 events of the current process (errors already reduced to `{ name, message }`).

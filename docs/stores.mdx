@@ -16,6 +16,7 @@ interface ResilienceStore {
   record(key: string, cfg: BreakerConfig, ok: boolean, probe: boolean): Promise<CircuitStatus>
   snapshot(key: string): Promise<CircuitSnapshot>                                  // read-only inspect
   reset(key: string): Promise<void>                                                // back to closed
+  keys?(opts: { prefix?: string; limit: number }): Promise<string[]>              // optional: list circuit keys
 }
 ```
 

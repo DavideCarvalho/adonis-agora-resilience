@@ -32,8 +32,11 @@ interface ResilienceStore {
   record(key: string, cfg: BreakerConfig, ok: boolean, probe: boolean): Promise<CircuitStatus>
   snapshot(key: string): Promise<CircuitSnapshot>                                  // read-only inspect
   reset(key: string): Promise<void>                                                // back to closed
+  keys?(opts: { prefix?: string; limit: number }): Promise<string[]>              // optional: list circuit keys
 }
 ```
+
+`keys()` is optional. Implement it when your engine can list keys cheaply, and `resilience.circuits()` (and the Telescope page) list every circuit the store holds; without it they list the circuits the current process used.
 
 The one hard rule: **`admit` and `record` must be atomic** against your engine. The distributed guarantee — exactly one instance wins the half-open probe under concurrent load — depends on the load→compute→persist cycle being indivisible. A `SELECT … FOR UPDATE` transaction, a Lua script, a compare-and-swap loop: any of these works, as long as no two callers can interleave a read and a write.
 
