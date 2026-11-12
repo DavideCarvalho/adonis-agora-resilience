@@ -122,6 +122,11 @@ describe('bulkhead', () => {
     expect((await store.bulkheadSnapshot('b')).active).toBe(0);
   });
 
+  it('validates leaseMs and queueTimeoutMs', () => {
+    expect(() => bulkhead({ key: 'b', limit: 1, leaseMs: 0 })).toThrow(/leaseMs must be positive/);
+    expect(() => bulkhead({ key: 'b', limit: 1, queueTimeoutMs: -1 })).toThrow(/queueTimeoutMs/);
+  });
+
   it('rejects a store without bulkhead support', () => {
     const store = {
       admit() {},

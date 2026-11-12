@@ -57,6 +57,12 @@ function addWaiting(store: object, key: string, delta: number): void {
  */
 export function bulkhead(opts: BulkheadOptions): Policy {
   if (!(opts.limit >= 1)) throw new Error(`bulkhead "${opts.key}": limit must be at least 1`);
+  if (opts.leaseMs !== undefined && !(opts.leaseMs > 0)) {
+    throw new Error(`bulkhead "${opts.key}": leaseMs must be positive`);
+  }
+  if (opts.queueTimeoutMs !== undefined && !(opts.queueTimeoutMs >= 0)) {
+    throw new Error(`bulkhead "${opts.key}": queueTimeoutMs must not be negative`);
+  }
   const ambient = currentAmbient();
   const onEvent = policySink(opts.onEvent);
   const store = resolvePolicyStore(opts.store as ResilienceStore | string | undefined, 'bulkhead');

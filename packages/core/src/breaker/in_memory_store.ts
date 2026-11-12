@@ -50,7 +50,10 @@ interface StoredCircuit {
  */
 export class InMemoryResilienceStore implements ResilienceStore, BulkheadStore, RateLimitStore {
   private readonly map = new Map<string, StoredCircuit>();
-  /** Bulkhead key → lease id → expiry (epoch ms). */
+  /**
+   * Bulkhead key → lease id → expiry (epoch ms). A key is only here while one of its slots is held,
+   * so its size is bounded by the calls in flight (no `maxEntries` eviction: that would free slots).
+   */
   private readonly bulkheads = new Map<string, Map<string, number>>();
   private readonly releaseListeners = new Map<string, Set<() => void>>();
   /** Rate-limiter key → bucket, least recently used first; dropped once full again. */
@@ -238,7 +241,8 @@ export class InMemoryResilienceStore implements ResilienceStore, BulkheadStore, 
 
   async rateLimitSnapshot(key: string): Promise<RateLimitSnapshot> {
     const state = this.bucket(key);
-    return state ? { tokens: state.tokens, updatedAt: state.updatedAt } : {};
+    const now = this.clock.now();
+    return state ? { tokens: state.tokens, updatedAt: state.updatedAt, now } : { now };
   }
 
   async resetRateLimit(key: string): Promise<void> {

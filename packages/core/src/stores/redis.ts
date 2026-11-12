@@ -215,8 +215,14 @@ export class RedisResilienceStore implements ResilienceStore, BulkheadStore, Rat
     await this.redis.del(this.bulkheadPrefix + key);
   }
 
-  bulkheadKeys(opts: KeysQuery): Promise<string[]> {
-    return scanKeys(this.redis, this.bulkheadPrefix, opts);
+  /** Bulkheads with at least one live slot (a set whose slots all expired is left out). */
+  async bulkheadKeys(opts: KeysQuery): Promise<string[]> {
+    const keys = await scanKeys(this.redis, this.bulkheadPrefix, opts);
+    const now = this.clock.now();
+    const counts = await Promise.all(
+      keys.map((key) => this.redis.rlBulkheadCount(this.bulkheadPrefix + key, now)),
+    );
+    return keys.filter((_, i) => Number(counts[i]) > 0);
   }
 
   // ── rate limiters ──────────────────────────────────────────────────────────────────────────
@@ -242,21 +248,27 @@ export class RedisResilienceStore implements ResilienceStore, BulkheadStore, Rat
   }
 
   async rateLimitSnapshot(key: string): Promise<RateLimitSnapshot> {
-    const [tokens, updatedAt] = await this.redis.hmget(
+    const [tokens, updatedAt, expiresAt] = await this.redis.hmget(
       this.rateLimitPrefix + key,
       'tokens',
       'updatedAt',
+      'expiresAt',
     );
-    if (tokens == null || updatedAt == null) return {};
-    return { tokens: Number(tokens), updatedAt: Number(updatedAt) };
+    const now = this.clock.now();
+    if (tokens == null || updatedAt == null) return { now };
+    if (expiresAt != null && Number(expiresAt) <= now) return { now };
+    return { tokens: Number(tokens), updatedAt: Number(updatedAt), now };
   }
 
   async resetRateLimit(key: string): Promise<void> {
     await this.redis.del(this.rateLimitPrefix + key);
   }
 
-  rateLimitKeys(opts: KeysQuery): Promise<string[]> {
-    return scanKeys(this.redis, this.rateLimitPrefix, opts);
+  /** Buckets in use (one idle long enough to be full again is left out). */
+  async rateLimitKeys(opts: KeysQuery): Promise<string[]> {
+    const keys = await scanKeys(this.redis, this.rateLimitPrefix, opts);
+    const snapshots = await Promise.all(keys.map((key) => this.rateLimitSnapshot(key)));
+    return keys.filter((_, i) => snapshots[i]?.tokens !== undefined);
   }
 
   async reset(key: string): Promise<void> {

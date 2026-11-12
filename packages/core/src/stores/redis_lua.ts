@@ -140,7 +140,7 @@ return redis.call('ZCOUNT', KEYS[1], '(' .. ARGV[1], '+inf')
 
 /**
  * Atomic token-bucket consume, mirroring `limits/token_bucket.ts`. KEYS[1] = bucket hash
- * (`tokens`, `updatedAt`). ARGV: now, ratePerMs, capacity, cost, ttlMs.
+ * (`tokens`, `updatedAt`, `expiresAt`: once idle past it the bucket reads as new). ARGV: now, ratePerMs, capacity, cost, ttlMs.
  * Returns {allowed(1/0), tokens (string), retryAfterMs (string)}.
  */
 export const RATE_LIMIT_LUA = `
@@ -152,7 +152,8 @@ local cost = tonumber(ARGV[4])
 local ttl = tonumber(ARGV[5])
 local tokens = tonumber(redis.call('HGET', h, 'tokens'))
 local updated = tonumber(redis.call('HGET', h, 'updatedAt'))
-if tokens == nil or updated == nil then
+local expires = tonumber(redis.call('HGET', h, 'expiresAt'))
+if tokens == nil or updated == nil or (expires ~= nil and expires <= now) then
   tokens = capacity
 else
   local elapsed = now - updated
@@ -168,7 +169,7 @@ else
   retry = math.ceil((cost - tokens) / rate - 1e-9)
   if retry < 1 then retry = 1 end
 end
-redis.call('HSET', h, 'tokens', string.format('%.17g', tokens), 'updatedAt', now)
+redis.call('HSET', h, 'tokens', string.format('%.17g', tokens), 'updatedAt', now, 'expiresAt', now + ttl)
 redis.call('PEXPIRE', h, ttl)
 return {allowed, string.format('%.17g', tokens), string.format('%d', retry)}
 `;

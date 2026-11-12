@@ -286,6 +286,7 @@ export default class extends BaseSchema {
       table.text('key').primary()
       table.double('tokens').notNullable()
       table.bigInteger('updated_at').notNullable()
+      table.bigInteger('expires_at').notNullable()
     })
   }
 

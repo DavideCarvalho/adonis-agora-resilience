@@ -67,6 +67,8 @@ export interface RateLimitDecision {
 export interface RateLimitSnapshot {
   tokens?: number;
   updatedAt?: number;
+  /** The store's clock when the snapshot was taken (to compute the refill since `updatedAt`). */
+  now?: number;
 }
 
 /**

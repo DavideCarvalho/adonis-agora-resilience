@@ -70,6 +70,16 @@ export function runBulkheadStoreContract(
       ]);
       expect(await s.bulkheadKeys({ limit: 1 })).toHaveLength(1);
     });
+
+    it('bulkheadKeys() (when implemented) leaves out bulkheads whose slots all expired', async () => {
+      const clock = new FakeClock();
+      const s = makeStore(clock);
+      if (typeof s.bulkheadKeys !== 'function') return;
+      await s.acquireBulkhead('stale', bulkheadCfg);
+      clock.advance(1000);
+      await s.acquireBulkhead('live', bulkheadCfg);
+      expect(await s.bulkheadKeys({ limit: 10 })).toEqual(['live']);
+    });
   });
 }
 
@@ -145,6 +155,25 @@ export function runRateLimitStoreContract(
         'sms:a',
         'sms:b',
       ]);
+    });
+
+    it('forgets a bucket once it has been idle long enough to be full again', async () => {
+      const clock = new FakeClock();
+      const s = makeStore(clock);
+      await s.consumeRateLimit('idle', rateCfg, 4);
+      clock.advance(1000);
+      expect((await s.rateLimitSnapshot('idle')).tokens).toBeUndefined();
+      if (typeof s.rateLimitKeys === 'function') {
+        expect(await s.rateLimitKeys({ limit: 10 })).toEqual([]);
+      }
+    });
+
+    it('snapshot carries the store clock', async () => {
+      const clock = new FakeClock();
+      const s = makeStore(clock);
+      clock.advance(1234);
+      const now = (await s.rateLimitSnapshot('r')).now;
+      if (now !== undefined) expect(now).toBe(1234);
     });
   });
 }

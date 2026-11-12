@@ -553,7 +553,7 @@ export class ResilienceService {
           ? { tokens: snapshot.tokens, updatedAt: snapshot.updatedAt }
           : undefined;
       info.remaining = Math.floor(
-        state ? tokensAt(state, config, Date.now()) : bucketCapacity(config),
+        state ? tokensAt(state, config, snapshot.now ?? Date.now()) : bucketCapacity(config),
       );
     } else if (snapshot.tokens !== undefined) {
       info.tokens = snapshot.tokens;
