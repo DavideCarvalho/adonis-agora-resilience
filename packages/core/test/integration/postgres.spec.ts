@@ -217,6 +217,8 @@ describe('Lucid store on Postgres with `schema`', () => {
     await db.rawQuery(`DROP TABLE "${schema}".resilience_circuits`);
     const bad = (await check?.run(app)) as { status: string; message: string }[];
     expect(bad[0]?.status).toBe('error');
+    expect(bad[0]?.message).toContain('resilience_circuits not in schema');
+    expect((bad[0] as { fix?: string }).fix).toMatch(/^Create the schema and tables/);
   });
 
   it('a role that cannot create the schema gets a message naming it and the grant', async () => {
@@ -232,7 +234,7 @@ describe('Lucid store on Postgres with `schema`', () => {
       new Emitter(app),
     );
     try {
-      await db.rawQuery(`REVOKE CREATE ON DATABASE postgres FROM PUBLIC`);
+      // A new role has no CREATE on the database (PUBLIC gets only CONNECT and TEMP).
       const store = lucidResilienceStore(limited as unknown as LucidDatabase, { schema });
       await expect(store.snapshot('x')).rejects.toThrow(
         new RegExp(`could not create the schema "${schema}".*GRANT CREATE ON DATABASE`),

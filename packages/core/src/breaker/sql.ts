@@ -404,6 +404,14 @@ const TABLES = ['resilience_circuits', 'resilience_bulkhead_leases', 'resilience
 
 class RollbackProbe extends Error {}
 
+/** A unique violation on the catalog: another session created the same object at the same time. */
+function isConcurrentCreate(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | undefined;
+  return (
+    e?.code === '23505' || /pg_type_typname_nsp_index|already exists/i.test(String(e?.message))
+  );
+}
+
 /**
  * SQL-backed {@link ResilienceStore} shared by every relational adapter. Each adapter package is
  * reduced to a tiny {@link SqlDriver}; this class owns the atomic load→compute→persist cycle and
@@ -460,9 +468,11 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
     for (const ddl of [circuitsDdl(opts), bulkheadsDdl(opts), rateLimitsDdl(opts)]) {
       try {
         await this.driver.exec(ddl);
-      } catch {
+      } catch (error) {
         // Two processes creating the same table at once collide on Postgres's catalog even with
-        // IF NOT EXISTS; by now the other one has created it, so the retry is a no-op.
+        // IF NOT EXISTS; by now the other one has created it, so the retry is a no-op. Any other
+        // failure (permissions, a broken connection) surfaces right away.
+        if (!isConcurrentCreate(error)) throw error;
         await this.driver.exec(ddl);
       }
     }

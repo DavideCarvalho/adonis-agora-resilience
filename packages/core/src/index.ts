@@ -13,10 +13,12 @@ export type {
   SqlTx,
 } from './breaker/sql.js';
 export {
+  assertSchemaName,
   BULKHEADS_DDL,
   bulkheadsDdl,
   CIRCUITS_DDL,
   circuitsDdl,
+  quoteIdentifier,
   RATE_LIMITS_DDL,
   RESILIENCE_DDL,
   rateLimitsDdl,
