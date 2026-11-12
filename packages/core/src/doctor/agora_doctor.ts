@@ -115,23 +115,45 @@ export async function readDoctorChecks(container: ContainerLike): Promise<AgoraD
   return registry.checks;
 }
 
-/**
- * The checks of every installed `@adonis-agora/*` package that publishes a `./doctor` entry
- * (`export const agoraDoctorChecks`), imported from the app root without booting providers.
- */
-export async function discoverDoctorChecks(app: ApplicationService): Promise<AgoraDoctorCheck[]> {
+/** An installed `@adonis-agora/*` package the app depends on that publishes a `./doctor` entry. */
+interface DoctorPackage {
+  name: string;
+  dir: string;
+  entry: string;
+}
+
+/** The app's `@adonis-agora/*` dependencies that publish a `./doctor` entry, sorted by name. */
+async function doctorPackages(app: ApplicationService): Promise<DoctorPackage[]> {
   const manifest = await readJson(app.makePath('package.json'));
   const names = Object.keys({
     ...(manifest?.dependencies as object | undefined),
     ...(manifest?.devDependencies as object | undefined),
   }).filter((name) => name.startsWith('@adonis-agora/'));
-  const checks: AgoraDoctorCheck[] = [];
+  const found: DoctorPackage[] = [];
   for (const name of names.sort()) {
     const dir = await packageDir(name, app.makePath());
     if (dir === null) continue;
     const pkg = await readJson(join(dir, 'package.json'));
     const entry = exportTarget(pkg?.exports, './doctor');
-    if (entry === null) continue;
+    if (entry !== null) found.push({ name, dir, entry });
+  }
+  return found;
+}
+
+/** `@adonis-agora/durable` → `durable`. */
+function libOfPackage(name: string): string {
+  return name.slice('@adonis-agora/'.length);
+}
+
+/**
+ * The checks of every installed `@adonis-agora/*` package that publishes a `./doctor` entry
+ * (`export const agoraDoctorChecks`), imported from the app root without booting providers. A
+ * package whose entry fails to load is reported as an error (`<lib>.doctor-entry`), never skipped.
+ */
+export async function discoverDoctorChecks(app: ApplicationService): Promise<AgoraDoctorCheck[]> {
+  const checks: AgoraDoctorCheck[] = [];
+  for (const { name, dir, entry } of await doctorPackages(app)) {
+    let problem: string | null = null;
     try {
       const mod = (await import(pathToFileURL(join(dir, entry)).href)) as {
         agoraDoctorChecks?: unknown;
@@ -140,12 +162,51 @@ export async function discoverDoctorChecks(app: ApplicationService): Promise<Ago
         for (const check of mod.agoraDoctorChecks as AgoraDoctorCheck[]) {
           if (!checks.some((c) => c.id === check.id)) checks.push(check);
         }
+      } else {
+        problem = 'it does not export `agoraDoctorChecks`';
       }
-    } catch {
-      /* a package whose doctor entry cannot load is reported by its peers check */
+    } catch (error) {
+      problem = `it failed to load: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (problem !== null) {
+      const message = `The ./doctor entry of ${name}: ${problem}.`;
+      checks.push({
+        id: `${libOfPackage(name)}.doctor-entry`,
+        lib: libOfPackage(name),
+        package: name,
+        title: 'Doctor checks load',
+        run: () => ({
+          status: 'error',
+          message,
+          fix: `Reinstall ${name}, or run without --no-boot to see the boot error.`,
+        }),
+      });
     }
   }
   return checks;
+}
+
+/**
+ * One `<lib>.registered` warning per installed package that has doctor checks but registered none:
+ * its provider is missing from `adonisrc.ts`.
+ */
+async function unregisteredChecks(
+  app: ApplicationService,
+  registeredPackages: ReadonlySet<string>,
+): Promise<AgoraDoctorCheck[]> {
+  return (await doctorPackages(app))
+    .filter(({ name }) => !registeredPackages.has(name))
+    .map(({ name }) => ({
+      id: `${libOfPackage(name)}.registered`,
+      lib: libOfPackage(name),
+      package: name,
+      title: 'Provider registered',
+      run: () => ({
+        status: 'warn',
+        message: `${name} is installed but its provider is not registered, so none of its checks ran.`,
+        fix: `Run \`node ace configure ${name}\`, or add its provider to adonisrc.ts.`,
+      }),
+    }));
 }
 
 function exportTarget(exportsField: unknown, subpath: string): string | null {
@@ -601,6 +662,11 @@ export async function runAgoraDoctor(
     all.push(...builtinChecks(lib, packages.get(lib) as string));
     all.push(...registered.filter((check) => check.lib === lib));
   }
+  for (const check of await unregisteredChecks(app, new Set(packages.values()))) {
+    if (!packages.has(check.lib)) packages.set(check.lib, packageOf(check));
+    all.push(check);
+  }
+  all.sort((a, b) => (a.lib < b.lib ? -1 : a.lib > b.lib ? 1 : 0));
   if (options.only !== undefined && !all.some((check) => check.id === options.only)) {
     throw new AgoraDoctorUsageError(`no check has the id "${options.only}".`);
   }
