@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 1.0.0-rc.5
+
+### Minor Changes
+
+- [#147](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/147) [`80e6e42`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/80e6e424b21f8dc7159f18644c4523870ff0a437) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `node ace agora:doctor` and `node ace resilience:doctor`: health checks for the resilience configuration (`resilience.store`, `resilience.policies`, `resilience.limits-scope`, and with `--deep` `resilience.store-reachable`), plus the shared peer-range and release-line checks, registered in the shared `agora.doctor` registry so one `agora:doctor` run covers every installed `@adonis-agora` lib. Flags: `--lib`, `--only`, `--deep`, `--json`, `--strict`, `--verbose`, `--no-boot`; exit code 0 / 1 / 2. `@adonis-agora/resilience/doctor` exports the checks for `--no-boot`.
+
 ## 1.0.0-rc.4
 
 ### Minor Changes
