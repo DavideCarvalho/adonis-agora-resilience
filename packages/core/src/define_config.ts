@@ -1,5 +1,6 @@
 import type { ResilienceServiceOptions } from './resilience_service.js';
 import { type StoreProvider, stores } from './stores/factory.js';
+import type { ResilienceTelescopeOptions } from './telescope/extension.js';
 
 /**
  * Shape of `config/resilience.ts`. Extends {@link ResilienceServiceOptions} (named policies, event
@@ -16,6 +17,11 @@ export interface ResilienceConfig
   default?: string;
   /** Named circuit-breaker stores, built with the {@link stores} factory. */
   stores?: Record<string, StoreProvider>;
+  /**
+   * The "Resilience" page in `@adonis-agora/telescope`, added on its own when telescope is installed.
+   * `false` leaves it out; `{ reset: false }` hides the Reset button. Default `true`.
+   */
+  telescope?: boolean | ResilienceTelescopeOptions;
 }
 
 /** Identity helper giving `config/resilience.ts` full type-checking. */

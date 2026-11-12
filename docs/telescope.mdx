@@ -1,0 +1,58 @@
+---
+title: See it in Telescope
+description: A Resilience page in Telescope with open circuits, busy bulkheads, rate limiters and the last hour of retries, timeouts and rejections, plus a Reset button for circuits.
+icon: Gauge
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+With [`@adonis-agora/telescope`](/docs/telescope) installed, Telescope gets a **Resilience** page (under *Libraries*) without any configuration. It shows:
+
+- **Now**: open and half-open circuits, and in the last hour: short-circuited calls, retries, timeouts, the error rate of your named policies, bulkhead rejections and rate-limited calls.
+- **Circuits**: every circuit with its policy, status, failures, when it goes half-open, and its store.
+- **Limits**: bulkheads (calls running against their limit) and rate limiters (budget left).
+- **Last hour**: events per type over time, and the noisiest policies.
+- **Recent transitions**: circuits opening, going half-open, closing and being reset, each linking to its Telescope entry.
+
+The events come from [diagnostics](/docs/resilience/integrations#diagnostics), so install `@adonis-agora/diagnostics` too. With a shared Telescope storage, the charts cover every process. The error-rate card needs `executedEvents: true`:
+
+```ts title="config/resilience.ts"
+export default defineConfig({
+  default: 'redis',
+  stores: { redis: stores.redis({ connection: 'main' }) },
+  executedEvents: true,
+  policies: {
+    stripe: () => wrap(timeout(2_000), retry({ attempts: 3 }), circuitBreaker({ key: 'stripe', threshold: 5, cooldownMs: 30_000 })),
+  },
+})
+```
+
+<Callout type="info" title="Memory store">
+The circuits, bulkheads and rate limiters tables read live state through the process serving Telescope. With the memory store that is that process's state only, and the page says so. Use the Redis or Lucid store to see the whole fleet.
+</Callout>
+
+## Resetting a circuit
+
+Open and half-open circuits have a **Reset** button. After you confirm, the circuit closes and calls reach the dependency again. Telescope's console `authorize` decides who can do it, the same rule as the rest of the console. Each reset writes a log line and a `circuit-reset` event with who did it, which shows up under *Recent transitions*.
+
+Hide the button, or the whole page:
+
+```ts title="config/resilience.ts"
+export default defineConfig({
+  telescope: { reset: false }, // the page without the Reset button
+  // telescope: false,         // no Resilience page
+})
+```
+
+## Adding the page by hand
+
+If you set `telescope: false` but want the page in one app only, list the extension in Telescope's config instead:
+
+```ts title="config/telescope.ts"
+import { defineConfig } from '@adonis-agora/telescope'
+import { resilienceTelescopeExtension } from '@adonis-agora/resilience/telescope'
+
+export default defineConfig({
+  extensions: [resilienceTelescopeExtension({ reset: false })],
+})
+```

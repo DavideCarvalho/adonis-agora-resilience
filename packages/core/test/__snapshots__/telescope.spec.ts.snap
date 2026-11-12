@@ -1,0 +1,340 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`dashboard > matches the page spec 1`] = `
+{
+  "id": "resilience.overview",
+  "label": "Resilience",
+  "navGroup": "Libraries",
+  "panels": [],
+  "sections": [
+    {
+      "cols": 4,
+      "panels": [
+        {
+          "data": {
+            "provider": "resilience.stats",
+            "query": {
+              "metric": "open",
+            },
+          },
+          "kind": "stat",
+          "thresholds": {
+            "bad": 3,
+            "direction": "up-bad",
+            "warn": 1,
+          },
+          "title": "Open circuits",
+        },
+        {
+          "data": {
+            "provider": "resilience.stats",
+            "query": {
+              "metric": "half-open",
+            },
+          },
+          "kind": "stat",
+          "thresholds": {
+            "bad": 3,
+            "direction": "up-bad",
+            "warn": 1,
+          },
+          "title": "Half-open",
+        },
+        {
+          "data": {
+            "provider": "resilience.stats",
+            "query": {
+              "metric": "short-circuited",
+            },
+          },
+          "kind": "stat",
+          "thresholds": {
+            "bad": 100,
+            "direction": "up-bad",
+            "warn": 1,
+          },
+          "title": "Short-circuited (1h)",
+        },
+        {
+          "data": {
+            "provider": "resilience.stats",
+            "query": {
+              "metric": "retry",
+            },
+          },
+          "kind": "stat",
+          "thresholds": {
+            "bad": 500,
+            "direction": "up-bad",
+            "warn": 50,
+          },
+          "title": "Retries (1h)",
+        },
+        {
+          "data": {
+            "provider": "resilience.stats",
+            "query": {
+              "metric": "timeout",
+            },
+          },
+          "kind": "stat",
+          "thresholds": {
+            "bad": 100,
+            "direction": "up-bad",
+            "warn": 10,
+          },
+          "title": "Timeouts (1h)",
+        },
+        {
+          "data": {
+            "provider": "resilience.stats",
+            "query": {
+              "metric": "error-rate",
+            },
+          },
+          "format": "percent",
+          "kind": "stat",
+          "thresholds": {
+            "bad": 0.1,
+            "direction": "up-bad",
+            "warn": 0.02,
+          },
+          "title": "Error rate (1h)",
+        },
+        {
+          "data": {
+            "provider": "resilience.stats",
+            "query": {
+              "metric": "bulkhead-rejected",
+            },
+          },
+          "kind": "stat",
+          "thresholds": {
+            "bad": 50,
+            "direction": "up-bad",
+            "warn": 1,
+          },
+          "title": "Bulkhead rejections (1h)",
+        },
+        {
+          "data": {
+            "provider": "resilience.stats",
+            "query": {
+              "metric": "rate-limited",
+            },
+          },
+          "kind": "stat",
+          "thresholds": {
+            "bad": 50,
+            "direction": "up-bad",
+            "warn": 1,
+          },
+          "title": "Rate limited (1h)",
+        },
+      ],
+      "title": "Now",
+    },
+    {
+      "panels": [
+        {
+          "columns": [
+            {
+              "key": "key",
+              "label": "Circuit",
+            },
+            {
+              "key": "policy",
+              "label": "Policy",
+            },
+            {
+              "key": "status",
+              "label": "Status",
+            },
+            {
+              "key": "failures",
+              "label": "Failures",
+            },
+            {
+              "key": "until",
+              "label": "Half-open at",
+            },
+            {
+              "key": "store",
+              "label": "Store",
+            },
+            {
+              "key": "scope",
+              "label": "Scope",
+            },
+            {
+              "action": {
+                "input": {
+                  "key": "{key}",
+                  "store": "{store}",
+                },
+                "label": "Reset",
+                "name": "resilience.reset-circuit",
+                "showWhen": {
+                  "status": [
+                    "open",
+                    "half-open",
+                  ],
+                },
+              },
+              "key": "reset",
+              "label": "",
+            },
+          ],
+          "data": {
+            "provider": "resilience.circuits",
+          },
+          "kind": "table",
+          "paged": true,
+          "title": "Circuits",
+        },
+      ],
+      "title": "Circuits",
+    },
+    {
+      "cols": 2,
+      "panels": [
+        {
+          "columns": [
+            {
+              "key": "key",
+              "label": "Bulkhead",
+            },
+            {
+              "key": "policy",
+              "label": "Policy",
+            },
+            {
+              "key": "active",
+              "label": "Running",
+            },
+            {
+              "key": "limit",
+              "label": "Limit",
+            },
+            {
+              "key": "store",
+              "label": "Store",
+            },
+            {
+              "key": "scope",
+              "label": "Scope",
+            },
+          ],
+          "data": {
+            "provider": "resilience.bulkheads",
+          },
+          "kind": "table",
+          "title": "Bulkheads",
+        },
+        {
+          "columns": [
+            {
+              "key": "key",
+              "label": "Limiter",
+            },
+            {
+              "key": "policy",
+              "label": "Policy",
+            },
+            {
+              "key": "remaining",
+              "label": "Left",
+            },
+            {
+              "key": "rate",
+              "label": "Rate",
+            },
+            {
+              "key": "store",
+              "label": "Store",
+            },
+            {
+              "key": "scope",
+              "label": "Scope",
+            },
+          ],
+          "data": {
+            "provider": "resilience.rate-limiters",
+          },
+          "kind": "table",
+          "title": "Rate limiters",
+        },
+      ],
+      "title": "Limits",
+    },
+    {
+      "cols": 2,
+      "panels": [
+        {
+          "data": {
+            "provider": "resilience.events-over-time",
+          },
+          "kind": "timeseries",
+          "series": [
+            "retry",
+            "timeout",
+            "short-circuited",
+            "circuit-opened",
+            "bulkhead-rejected",
+            "rate-limited",
+            "failover",
+          ],
+          "style": "stacked",
+          "title": "Events",
+        },
+        {
+          "data": {
+            "provider": "resilience.noisy-policies",
+          },
+          "kind": "topN",
+          "limit": 8,
+          "title": "Noisiest policies",
+        },
+      ],
+      "title": "Last hour",
+    },
+    {
+      "panels": [
+        {
+          "columns": [
+            {
+              "key": "at",
+              "label": "Time",
+            },
+            {
+              "key": "event",
+              "label": "Event",
+              "link": {
+                "href": "#/entries/{id}",
+              },
+            },
+            {
+              "key": "key",
+              "label": "Circuit",
+            },
+            {
+              "key": "policy",
+              "label": "Policy",
+            },
+            {
+              "key": "detail",
+              "label": "Detail",
+            },
+          ],
+          "data": {
+            "provider": "resilience.transitions",
+          },
+          "kind": "table",
+          "title": "Recent transitions",
+        },
+      ],
+      "title": "Transitions",
+    },
+  ],
+}
+`;
