@@ -26,6 +26,19 @@ export interface StoreContext {
  */
 export type StoreProvider = (ctx: StoreContext) => Promise<ResilienceStore>;
 
+const KIND = Symbol.for('@agora/resilience:store-kind');
+
+/** The built-in kind of a configured store (`memory`, `lucid`, `redis`), or undefined for a custom one. */
+export function storeProviderKind(provider: unknown): 'memory' | 'lucid' | 'redis' | undefined {
+  if (typeof provider !== 'function') return undefined;
+  return (provider as unknown as Record<symbol, 'memory' | 'lucid' | 'redis' | undefined>)[KIND];
+}
+
+function kind(provider: StoreProvider, value: 'memory' | 'lucid' | 'redis'): StoreProvider {
+  Object.defineProperty(provider, KIND, { value, enumerable: false });
+  return provider;
+}
+
 /**
  * Options for the built-in in-memory store. `maxEntries`/`ttlMs` are recommended whenever the
  * circuit `key` folds in caller-influenced input (e.g. a tenant id) — see
@@ -87,15 +100,15 @@ async function resolveService<T>(ctx: StoreContext, binding: string, method: str
 export const stores = {
   /** In-process circuit store — single process, no peer dependency. */
   memory(config: MemoryStoreConfig = {}): StoreProvider {
-    return async () => {
+    return kind(async () => {
       const { clock, ...opts } = config;
       return new InMemoryResilienceStore(clock, opts);
-    };
+    }, 'memory');
   },
 
   /** SQL circuit store backed by `@adonisjs/lucid` (Postgres / MySQL / SQLite). */
   lucid(config: LucidStoreConfig = {}): StoreProvider {
-    return async (ctx) => {
+    return kind(async (ctx) => {
       const db = await resolveService<{ connection(name: string): unknown }>(
         ctx,
         'lucid.db',
@@ -105,12 +118,12 @@ export const stores = {
       const { connection, ...opts } = config;
       const client = (connection ? db.connection(connection) : db) as unknown as LucidDatabase;
       return lucidResilienceStore(client, opts);
-    };
+    }, 'lucid');
   },
 
   /** Distributed circuit store backed by `@adonisjs/redis` / `ioredis`. */
   redis(config: RedisStoreConfig = {}): StoreProvider {
-    return async (ctx) => {
+    return kind(async (ctx) => {
       const redisService = await resolveService<{ connection(name?: string): unknown }>(
         ctx,
         'redis',
@@ -122,6 +135,6 @@ export const stores = {
       // The raw ioredis client behind the AdonisJS connection satisfies RedisLike.
       const client = (conn as { ioConnection: RedisLike }).ioConnection;
       return redisResilienceStore(client, opts);
-    };
+    }, 'redis');
   },
 };
