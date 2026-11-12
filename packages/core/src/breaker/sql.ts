@@ -27,38 +27,135 @@ import type { Admission, BreakerConfig, CircuitSnapshot, CircuitStatus } from '.
  */
 export type SqlPlaceholderStyle = 'numbered' | 'positional';
 
-/** DDL — idempotent, safe to run on every startup. Placeholder-free, so identical across dialects. */
-export const CIRCUITS_DDL = `
-CREATE TABLE IF NOT EXISTS resilience_circuits (
+/**
+ * How the dialect quotes identifiers: `"name"` (Postgres, SQLite, ANSI) or `` `name` `` (MySQL).
+ * Only used when the store is given a `schema`; without one, table names are written bare.
+ */
+export type SqlIdentifierQuote = 'double' | 'backtick';
+
+/** The physical names of the store's tables, already quoted and schema-qualified when needed. */
+export interface ResilienceTableNames {
+  circuits: string;
+  bulkheadLeases: string;
+  rateLimits: string;
+}
+
+/** Options shared by the DDL helpers and the store: where the tables live. */
+export interface ResilienceSchemaOptions {
+  /**
+   * Database schema (Postgres) or database (MySQL) holding the tables. Every statement names it, so
+   * nothing depends on the connection's `search_path`. Default: unqualified names (the current
+   * schema).
+   */
+  schema?: string | undefined;
+  /** Identifier quoting of the dialect. Default `double`; the Lucid store picks it from the dialect. */
+  quote?: SqlIdentifierQuote | undefined;
+}
+
+const SCHEMA_NAME = /^[A-Za-z_][A-Za-z0-9_$]*$/;
+
+/** Throws unless `schema` is a plain identifier of at most 63 characters (it is written into SQL). */
+export function assertSchemaName(schema: string): void {
+  if (typeof schema !== 'string' || !SCHEMA_NAME.test(schema) || schema.length > 63) {
+    throw new Error(
+      `@adonis-agora/resilience: invalid schema ${JSON.stringify(schema)} ` +
+        '(letters, digits, _ and $, not starting with a digit, at most 63 characters)',
+    );
+  }
+}
+
+/** Quote one identifier for the dialect. */
+export function quoteIdentifier(name: string, quote: SqlIdentifierQuote = 'double'): string {
+  return quote === 'backtick'
+    ? `\`${name.replaceAll('`', '``')}\``
+    : `"${name.replaceAll('"', '""')}"`;
+}
+
+/**
+ * The table names the statements use: bare without a `schema`, otherwise `"schema"."table"` (each
+ * part quoted on its own, so the result is a qualified name and never one quoted `"schema.table"`).
+ */
+export function resilienceTableNames(opts: ResilienceSchemaOptions = {}): ResilienceTableNames {
+  const { schema, quote } = opts;
+  if (schema === undefined) {
+    return {
+      circuits: 'resilience_circuits',
+      bulkheadLeases: 'resilience_bulkhead_leases',
+      rateLimits: 'resilience_rate_limits',
+    };
+  }
+  assertSchemaName(schema);
+  const q = (table: string) => `${quoteIdentifier(schema, quote)}.${quoteIdentifier(table, quote)}`;
+  return {
+    circuits: q('resilience_circuits'),
+    bulkheadLeases: q('resilience_bulkhead_leases'),
+    rateLimits: q('resilience_rate_limits'),
+  };
+}
+
+/** DDL for the circuits table — idempotent, placeholder-free, identical across dialects. */
+export function circuitsDdl(opts: ResilienceSchemaOptions = {}): string {
+  return `
+CREATE TABLE IF NOT EXISTS ${resilienceTableNames(opts).circuits} (
   key        TEXT PRIMARY KEY,
   status     TEXT    NOT NULL DEFAULT 'closed',
   failures   INTEGER NOT NULL DEFAULT 0,
   open_until BIGINT  NOT NULL DEFAULT 0,
   probes     INTEGER NOT NULL DEFAULT 0
 );`;
+}
 
 /**
- * Bulkhead slots: one row per held slot, plus one anchor row per key (`lease_id = ''`) that acquirers
- * lock to serialise the count-then-insert. Idempotent.
+ * DDL for the bulkhead slots: one row per held slot, plus one anchor row per key (`lease_id = ''`)
+ * that acquirers lock to serialise the count-then-insert. Idempotent.
  */
-export const BULKHEADS_DDL = `
-CREATE TABLE IF NOT EXISTS resilience_bulkhead_leases (
+export function bulkheadsDdl(opts: ResilienceSchemaOptions = {}): string {
+  return `
+CREATE TABLE IF NOT EXISTS ${resilienceTableNames(opts).bulkheadLeases} (
   key        TEXT   NOT NULL,
   lease_id   TEXT   NOT NULL,
   expires_at BIGINT NOT NULL,
   PRIMARY KEY (key, lease_id)
 );`;
+}
 
-/** Rate-limiter buckets: tokens left and when they were last counted. Idempotent. */
-export const RATE_LIMITS_DDL = `
-CREATE TABLE IF NOT EXISTS resilience_rate_limits (
+/** DDL for the rate-limiter buckets: tokens left and when they were last counted. Idempotent. */
+export function rateLimitsDdl(opts: ResilienceSchemaOptions = {}): string {
+  return `
+CREATE TABLE IF NOT EXISTS ${resilienceTableNames(opts).rateLimits} (
   key        TEXT PRIMARY KEY,
   tokens     DOUBLE PRECISION NOT NULL,
   updated_at BIGINT NOT NULL,
   expires_at BIGINT NOT NULL
 );`;
+}
 
-/** Every table the SQL stores use: circuits, bulkhead slots and rate-limiter buckets. */
+/**
+ * Every table the SQL stores use (circuits, bulkhead slots, rate-limiter buckets). With a `schema`,
+ * the list starts with the statement that creates it (`CREATE SCHEMA IF NOT EXISTS`, or
+ * `CREATE DATABASE IF NOT EXISTS` with backtick quoting, i.e. MySQL).
+ */
+export function resilienceDdl(opts: ResilienceSchemaOptions = {}): string[] {
+  const tables = [circuitsDdl(opts), bulkheadsDdl(opts), rateLimitsDdl(opts)];
+  if (opts.schema === undefined) return tables;
+  return [createSchemaSql(opts.schema, opts.quote), ...tables];
+}
+
+function createSchemaSql(schema: string, quote: SqlIdentifierQuote = 'double'): string {
+  const kind = quote === 'backtick' ? 'DATABASE' : 'SCHEMA';
+  return `CREATE ${kind} IF NOT EXISTS ${quoteIdentifier(schema, quote)}`;
+}
+
+/** DDL for the circuits table in the current schema. See {@link circuitsDdl} for another schema. */
+export const CIRCUITS_DDL = circuitsDdl();
+
+/** DDL for the bulkhead slots in the current schema. See {@link bulkheadsDdl}. */
+export const BULKHEADS_DDL = bulkheadsDdl();
+
+/** DDL for the rate-limiter buckets in the current schema. See {@link rateLimitsDdl}. */
+export const RATE_LIMITS_DDL = rateLimitsDdl();
+
+/** Every table the SQL stores use, in the current schema. See {@link resilienceDdl}. */
 export const RESILIENCE_DDL: readonly string[] = [CIRCUITS_DDL, BULKHEADS_DDL, RATE_LIMITS_DDL];
 
 interface LimitStatements {
@@ -78,57 +175,61 @@ interface LimitStatements {
   listBucketKeys: (limit: number) => string;
 }
 
-function limitStatements(style: SqlPlaceholderStyle, lockRows: boolean): LimitStatements {
+function limitStatements(
+  style: SqlPlaceholderStyle,
+  lockRows: boolean,
+  t: ResilienceTableNames,
+): LimitStatements {
   const p = style === 'numbered' ? (n: number) => `$${n}` : () => '?';
   const forUpdate = lockRows ? '\nFOR UPDATE' : '';
   return {
     insertAnchor: `
-INSERT INTO resilience_bulkhead_leases (key, lease_id, expires_at)
+INSERT INTO ${t.bulkheadLeases} (key, lease_id, expires_at)
 VALUES (${p(1)}, '', 0)
 ON CONFLICT (key, lease_id) DO NOTHING;`,
     lockAnchor: `
-SELECT key FROM resilience_bulkhead_leases
+SELECT key FROM ${t.bulkheadLeases}
 WHERE key = ${p(1)} AND lease_id = ''${forUpdate};`,
     deleteExpired: `
-DELETE FROM resilience_bulkhead_leases
+DELETE FROM ${t.bulkheadLeases}
 WHERE key = ${p(1)} AND lease_id <> '' AND expires_at <= ${p(2)};`,
     countLeases: `
-SELECT COUNT(*) AS n FROM resilience_bulkhead_leases
+SELECT COUNT(*) AS n FROM ${t.bulkheadLeases}
 WHERE key = ${p(1)} AND lease_id <> '' AND expires_at > ${p(2)};`,
     insertLease: `
-INSERT INTO resilience_bulkhead_leases (key, lease_id, expires_at)
+INSERT INTO ${t.bulkheadLeases} (key, lease_id, expires_at)
 VALUES (${p(1)}, ${p(2)}, ${p(3)});`,
     deleteLease: `
-DELETE FROM resilience_bulkhead_leases
+DELETE FROM ${t.bulkheadLeases}
 WHERE key = ${p(1)} AND lease_id = ${p(2)};`,
     deleteBulkhead: `
-DELETE FROM resilience_bulkhead_leases
+DELETE FROM ${t.bulkheadLeases}
 WHERE key = ${p(1)};`,
     listBulkheadKeys: (limit) => `
-SELECT DISTINCT key FROM resilience_bulkhead_leases
+SELECT DISTINCT key FROM ${t.bulkheadLeases}
 WHERE key LIKE ${p(1)} ESCAPE '!' AND lease_id <> '' AND expires_at > ${p(2)}
 ORDER BY key
 LIMIT ${limit};`,
     // A new bucket is written with tokens = -1, read back as "never used" (full).
     insertBucket: `
-INSERT INTO resilience_rate_limits (key, tokens, updated_at, expires_at)
+INSERT INTO ${t.rateLimits} (key, tokens, updated_at, expires_at)
 VALUES (${p(1)}, -1, 0, 0)
 ON CONFLICT (key) DO NOTHING;`,
     lockBucket: `
-SELECT tokens, updated_at, expires_at FROM resilience_rate_limits
+SELECT tokens, updated_at, expires_at FROM ${t.rateLimits}
 WHERE key = ${p(1)}${forUpdate};`,
     readBucket: `
-SELECT tokens, updated_at, expires_at FROM resilience_rate_limits
+SELECT tokens, updated_at, expires_at FROM ${t.rateLimits}
 WHERE key = ${p(1)};`,
     updateBucket: `
-UPDATE resilience_rate_limits
+UPDATE ${t.rateLimits}
 SET tokens = ${p(1)}, updated_at = ${p(2)}, expires_at = ${p(3)}
 WHERE key = ${p(4)};`,
     deleteBucket: `
-DELETE FROM resilience_rate_limits
+DELETE FROM ${t.rateLimits}
 WHERE key = ${p(1)};`,
     listBucketKeys: (limit) => `
-SELECT key FROM resilience_rate_limits
+SELECT key FROM ${t.rateLimits}
 WHERE key LIKE ${p(1)} ESCAPE '!' AND expires_at > ${p(2)}
 ORDER BY key
 LIMIT ${limit};`,
@@ -165,13 +266,17 @@ interface SqlStatements {
  * whether the pessimistic read carries `FOR UPDATE`. Dialects without row-lock syntax (SQLite) pass
  * `lockRows: false` and the clause is simply omitted here, so no adapter ever rewrites SQL by hand.
  */
-function statements(style: SqlPlaceholderStyle, lockRows: boolean): SqlStatements {
+function statements(
+  style: SqlPlaceholderStyle,
+  lockRows: boolean,
+  t: ResilienceTableNames,
+): SqlStatements {
   const p = style === 'numbered' ? (n: number) => `$${n}` : () => '?';
   const forUpdate = lockRows ? '\nFOR UPDATE' : '';
   return {
     // Ensure the row exists (no-op if already present).
     insertInitial: `
-INSERT INTO resilience_circuits (key, status, failures, open_until, probes)
+INSERT INTO ${t.circuits} (key, status, failures, open_until, probes)
 VALUES (${p(1)}, 'closed', 0, 0, 0)
 ON CONFLICT (key) DO NOTHING;`,
     // Pessimistic read — must run inside the same transaction as insertInitial. The `FOR UPDATE`
@@ -179,31 +284,31 @@ ON CONFLICT (key) DO NOTHING;`,
     // dialect like SQLite, transaction-level write serialisation preserves the same atomicity.
     selectForUpdate: `
 SELECT status, failures, open_until, probes
-FROM resilience_circuits
+FROM ${t.circuits}
 WHERE key = ${p(1)}${forUpdate};`,
     // Non-locking read for snapshot().
     selectPlain: `
 SELECT status, failures, open_until, probes
-FROM resilience_circuits
+FROM ${t.circuits}
 WHERE key = ${p(1)};`,
     // Persist the new state. Parameters: status, failures, open_until, probes, key.
     updateState: `
-UPDATE resilience_circuits
+UPDATE ${t.circuits}
 SET status = ${p(1)}, failures = ${p(2)}, open_until = ${p(3)}, probes = ${p(4)}
 WHERE key = ${p(5)};`,
     // Close after a success, matching no row when the circuit is already clean (or absent), so the
     // steady closed state is never rewritten. `probes` is left untouched, as in computeRecord.
     closeIfDirty: `
-UPDATE resilience_circuits
+UPDATE ${t.circuits}
 SET status = 'closed', failures = 0, open_until = 0
 WHERE key = ${p(1)} AND (status <> 'closed' OR failures <> 0 OR open_until <> 0);`,
     // Clear a circuit back to its initial state (reset()). A missing row is a no-op.
     deleteRow: `
-DELETE FROM resilience_circuits
+DELETE FROM ${t.circuits}
 WHERE key = ${p(1)};`,
     // List keys by prefix (LIKE with an explicit escape character). `limit` is a validated integer.
     listKeys: (limit) => `
-SELECT key FROM resilience_circuits
+SELECT key FROM ${t.circuits}
 WHERE key LIKE ${p(1)} ESCAPE '!'
 ORDER BY key
 LIMIT ${limit};`,
@@ -264,11 +369,40 @@ export interface SqlDriver {
   run(sql: string, params: unknown[]): Promise<void>;
   /** Run a DDL statement (no parameters). */
   exec(sql: string): Promise<void>;
+  /**
+   * How the dialect quotes identifiers, used to qualify table names when the store has a `schema`.
+   * Defaults to `double` (`"schema"."table"`); MySQL drivers set `backtick`.
+   */
+  readonly identifierQuote?: SqlIdentifierQuote;
 }
 
 export interface SqlResilienceStoreOptions {
   clock?: Clock;
+  /**
+   * Database schema (Postgres) or database (MySQL) holding the store's tables. Every statement names
+   * it (`"schema"."resilience_circuits"`), so nothing depends on the connection's `search_path` and
+   * it is safe behind PgBouncer in transaction mode. `ensureSchema()` creates it when missing.
+   * Default: unqualified table names (the connection's current schema).
+   */
+  schema?: string | undefined;
 }
+
+/** What {@link SqlResilienceStore.inspectSchema} found in the configured schema. */
+export interface ResilienceSchemaReport {
+  schema: string;
+  /** Whether the schema (MySQL: database) exists. */
+  exists: boolean;
+  /** The store's tables that are not in the schema. */
+  missingTables: string[];
+  /** Whether a row could be written there (checked in a transaction that is rolled back). */
+  writable: boolean;
+  /** Why the write failed, when it did. */
+  writeError?: string;
+}
+
+const TABLES = ['resilience_circuits', 'resilience_bulkhead_leases', 'resilience_rate_limits'];
+
+class RollbackProbe extends Error {}
 
 /**
  * SQL-backed {@link ResilienceStore} shared by every relational adapter. Each adapter package is
@@ -279,19 +413,111 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
   private readonly stmts: SqlStatements;
   private readonly limits: LimitStatements;
   private readonly clock: Clock;
+  /** The schema (MySQL: database) holding the tables, or undefined for the current one. */
+  readonly schema: string | undefined;
 
   constructor(
     private readonly driver: SqlDriver,
     opts: SqlResilienceStoreOptions = {},
   ) {
-    this.stmts = statements(driver.placeholders, driver.lockRows ?? true);
-    this.limits = limitStatements(driver.placeholders, driver.lockRows ?? true);
+    if (opts.schema !== undefined) assertSchemaName(opts.schema);
+    this.schema = opts.schema;
+    const tables = resilienceTableNames({ schema: opts.schema, quote: driver.identifierQuote });
+    this.stmts = statements(driver.placeholders, driver.lockRows ?? true, tables);
+    this.limits = limitStatements(driver.placeholders, driver.lockRows ?? true, tables);
     this.clock = opts.clock ?? systemClock;
   }
 
-  /** Create every table the store uses (circuits, bulkhead slots, rate-limiter buckets). */
+  private param(n: number): string {
+    return this.driver.placeholders === 'numbered' ? `$${n}` : '?';
+  }
+
+  /**
+   * Create every table the store uses (circuits, bulkhead slots, rate-limiter buckets). With a
+   * `schema`, the schema is created first when it does not exist yet.
+   */
   async ensureSchema(): Promise<void> {
-    for (const ddl of RESILIENCE_DDL) await this.driver.exec(ddl);
+    const opts = { schema: this.schema, quote: this.driver.identifierQuote };
+    if (this.schema !== undefined && !(await this.schemaExists())) {
+      const create = createSchemaSql(this.schema, this.driver.identifierQuote);
+      try {
+        await this.driver.exec(create);
+      } catch (error) {
+        // Another process may have created it between the check and the CREATE.
+        if (await this.schemaExists().catch(() => false)) return this.ensureSchema();
+        const database = this.driver.identifierQuote === 'backtick';
+        throw new Error(
+          `@adonis-agora/resilience: could not create the ${database ? 'database' : 'schema'} ` +
+            `"${this.schema}" (${error instanceof Error ? error.message : String(error)}). ` +
+            `Create it yourself (${create}) or let the database role create it ` +
+            (database
+              ? '(GRANT CREATE ON *.* TO <user>).'
+              : '(GRANT CREATE ON DATABASE <database> TO <role>).'),
+          { cause: error },
+        );
+      }
+    }
+    for (const ddl of [circuitsDdl(opts), bulkheadsDdl(opts), rateLimitsDdl(opts)]) {
+      try {
+        await this.driver.exec(ddl);
+      } catch {
+        // Two processes creating the same table at once collide on Postgres's catalog even with
+        // IF NOT EXISTS; by now the other one has created it, so the retry is a no-op.
+        await this.driver.exec(ddl);
+      }
+    }
+  }
+
+  private async schemaExists(): Promise<boolean> {
+    const rows = await this.driver.read(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name = ${this.param(1)}`,
+      [this.schema],
+    );
+    return rows.length > 0;
+  }
+
+  /**
+   * With a `schema`: whether it exists, which of the store's tables are missing from it, and whether
+   * a row can be written there (inside a transaction that is rolled back). `undefined` without a
+   * `schema`. Used by `agora:doctor`.
+   */
+  async inspectSchema(): Promise<ResilienceSchemaReport | undefined> {
+    const schema = this.schema;
+    if (schema === undefined) return undefined;
+    const exists = await this.schemaExists();
+    const rows = exists
+      ? await this.driver.read(
+          `SELECT table_name FROM information_schema.tables WHERE table_schema = ${this.param(1)}`,
+          [schema],
+        )
+      : [];
+    const found = new Set(
+      rows.map((row) => {
+        const r = row as Record<string, unknown>;
+        return String(r.table_name ?? r.TABLE_NAME);
+      }),
+    );
+    const missingTables = TABLES.filter((table) => !found.has(table));
+    let writable = false;
+    let writeError: string | undefined;
+    if (missingTables.length === 0) {
+      try {
+        await this.driver.transaction(async (tx) => {
+          await tx.run(this.stmts.insertInitial, ['__agora_doctor__']);
+          throw new RollbackProbe();
+        });
+      } catch (error) {
+        if (error instanceof RollbackProbe) writable = true;
+        else writeError = error instanceof Error ? error.message : String(error);
+      }
+    }
+    return {
+      schema,
+      exists,
+      missingTables,
+      writable,
+      ...(writeError === undefined ? {} : { writeError }),
+    };
   }
 
   /**

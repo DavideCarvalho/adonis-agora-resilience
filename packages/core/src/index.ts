@@ -3,16 +3,25 @@ export { configure } from '../configure.js';
 export type { InMemoryResilienceStoreOptions } from './breaker/in_memory_store.js';
 export { InMemoryResilienceStore } from './breaker/in_memory_store.js';
 export type {
+  ResilienceSchemaOptions,
+  ResilienceSchemaReport,
+  ResilienceTableNames,
   SqlDriver,
+  SqlIdentifierQuote,
   SqlPlaceholderStyle,
   SqlResilienceStoreOptions,
   SqlTx,
 } from './breaker/sql.js';
 export {
   BULKHEADS_DDL,
+  bulkheadsDdl,
   CIRCUITS_DDL,
+  circuitsDdl,
   RATE_LIMITS_DDL,
   RESILIENCE_DDL,
+  rateLimitsDdl,
+  resilienceDdl,
+  resilienceTableNames,
   SqlResilienceStore,
 } from './breaker/sql.js';
 export type { CircuitState } from './breaker/state_machine.js';

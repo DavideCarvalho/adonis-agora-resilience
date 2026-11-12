@@ -49,7 +49,10 @@ export interface MemoryStoreConfig extends InMemoryResilienceStoreOptions {
   clock?: Clock;
 }
 
-/** Options for the Lucid (SQL) store, plus the connection to resolve. */
+/**
+ * Options for the Lucid (SQL) store, plus the connection to resolve. `schema` puts the tables in
+ * another Postgres schema (MySQL: database) on that connection; every query names it.
+ */
 export interface LucidStoreConfig extends LucidResilienceStoreOptions {
   /** `@adonisjs/lucid` connection name. Defaults to the default connection. */
   connection?: string;
@@ -87,7 +90,7 @@ async function resolveService<T>(ctx: StoreContext, binding: string, method: str
  *   default: 'memory',
  *   stores: {
  *     memory: stores.memory(),
- *     lucid: stores.lucid({ connection: 'pg' }),
+ *     lucid: stores.lucid({ connection: 'pg', schema: 'resilience' }),
  *     redis: stores.redis({ connection: 'main' }),
  *   },
  * })

@@ -56,3 +56,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm test
+
+  # The Lucid store against a real Postgres (docker CLI): schema-qualified SQL, the app's
+  # transaction, the doctor's schema report.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.1.1
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.22.2
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @adonis-agora/resilience test:integration

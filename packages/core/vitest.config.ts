@@ -16,6 +16,7 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     include: ['src/**/*.{spec,test}.ts', 'test/**/*.{spec,test}.ts'],
+    exclude: ['test/integration/**', '**/node_modules/**'],
     pool: 'forks',
   },
 });

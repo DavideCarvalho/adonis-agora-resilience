@@ -1,5 +1,6 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import { InMemoryResilienceStore } from '../breaker/in_memory_store.js';
+import { SqlResilienceStore } from '../breaker/sql.js';
 import type { ResilienceConfig } from '../define_config.js';
 import { describePolicy } from '../describe.js';
 import { noopSink, withAmbient } from '../events.js';
@@ -140,7 +141,29 @@ export function resilienceDoctorChecks(): AgoraDoctorCheck[] {
             await store.snapshot('__doctor__');
             if (isBulkheadStore(store)) await store.bulkheadSnapshot('__doctor__');
             if (isRateLimitStore(store)) await store.rateLimitSnapshot('__doctor__');
-            out.push({ status: 'ok', message: `${label} answers` });
+            const report =
+              store instanceof SqlResilienceStore ? await store.inspectSchema() : undefined;
+            if (report === undefined) {
+              out.push({ status: 'ok', message: `${label} answers` });
+            } else if (!report.exists || report.missingTables.length > 0 || !report.writable) {
+              out.push({
+                status: 'error',
+                message: !report.exists
+                  ? `${label}: schema "${report.schema}" does not exist`
+                  : report.missingTables.length > 0
+                    ? `${label}: ${report.missingTables.join(', ')} not in schema "${report.schema}"`
+                    : `${label}: cannot write to schema "${report.schema}": ${report.writeError}`,
+                fix: report.writable
+                  ? `Create the schema and tables (resilienceDdl({ schema: '${report.schema}' })), or leave autoCreateSchema on`
+                  : `Grant the connection's role USAGE on schema "${report.schema}" and INSERT/UPDATE/DELETE on its resilience tables`,
+                docs: `${DOCS}/stores`,
+              });
+            } else {
+              out.push({
+                status: 'ok',
+                message: `${label} answers (tables in schema "${report.schema}", writable)`,
+              });
+            }
           } catch (error) {
             out.push({
               status: 'error',
