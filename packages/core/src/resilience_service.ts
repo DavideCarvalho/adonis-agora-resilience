@@ -1,3 +1,4 @@
+import { type CursorPageResponse, cursorPage } from '@adonis-agora/filter';
 import { InMemoryResilienceStore } from './breaker/in_memory_store.js';
 import type { ResilienceStore } from './breaker/store.js';
 import type { CircuitSnapshot, CircuitStatus } from './breaker/types.js';
@@ -124,8 +125,8 @@ export interface RateLimiterInfo {
 export interface LimitsQuery {
   store?: string;
   prefix?: string;
-  /** Default 100, at most 1000. */
-  limit?: number;
+  /** Page size. Default 100, at most 1000. */
+  first?: number;
 }
 
 /** Filters for {@link ResilienceService.circuits}. */
@@ -134,8 +135,8 @@ export interface CircuitsQuery {
   store?: string;
   status?: CircuitStatus;
   prefix?: string;
-  /** Default 100, at most 1000. */
-  limit?: number;
+  /** Page size. Default 100, at most 1000. */
+  first?: number;
 }
 
 /** One named policy, as described by {@link ResilienceService.describePolicies}. */
@@ -288,10 +289,12 @@ export class ResilienceService {
 
   /**
    * Every circuit this deployment knows: the keys the store lists (when it can), plus the keys this
-   * process used, with their live state. Open circuits first.
+   * process used, with their live state. Open circuits first, the first `first` of them; the stores
+   * cannot seek, so `meta.hasNext` says more circuits match and there are no cursors.
    */
-  async circuits(query: CircuitsQuery = {}): Promise<CircuitInfo[]> {
-    const limit = clampLimit(query.limit, 100, 1000);
+  async circuits(query: CircuitsQuery = {}): Promise<CursorPageResponse<CircuitInfo>> {
+    const size = clampSize(query.first, 100, 1000);
+    const limit = size + 1;
     const targets = query.store ? [this.requireStore(query.store)] : this.allStores();
     const keysByStore = new Map<ResilienceStore, Set<string>>();
     const add = (store: ResilienceStore, key: string) => {
@@ -321,15 +324,20 @@ export class ResilienceService {
       [...keys].map((key) => ({ store, key })),
     );
     const infos = await mapLimit(pairs, 16, ({ key, store }) => this.circuitInfo(key, store));
-    return infos
-      .filter((c) => query.status === undefined || c.status === query.status)
-      .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.key.localeCompare(b.key))
-      .slice(0, limit);
+    return firstPage(
+      infos
+        .filter((c) => query.status === undefined || c.status === query.status)
+        .sort(
+          (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.key.localeCompare(b.key),
+        ),
+      size,
+    );
   }
 
-  /** Every bulkhead the stores hold plus the ones this process used, busiest first. */
-  async bulkheads(query: LimitsQuery = {}): Promise<BulkheadInfo[]> {
-    const limit = clampLimit(query.limit, 100, 1000);
+  /** Every bulkhead the stores hold plus the ones this process used, busiest first (one page). */
+  async bulkheads(query: LimitsQuery = {}): Promise<CursorPageResponse<BulkheadInfo>> {
+    const size = clampSize(query.first, 100, 1000);
+    const limit = size + 1;
     const keysByStore = await this.collectKeys('bulkhead', query, limit, (store) =>
       isBulkheadStore(store) ? store.bulkheadKeys?.bind(store) : undefined,
     );
@@ -337,7 +345,10 @@ export class ResilienceService {
       isBulkheadStore(store) ? [...keys].map((key) => ({ store, key })) : [],
     );
     const out = await mapLimit(pairs, 16, ({ key, store }) => this.bulkheadInfo(key, store));
-    return out.sort((a, b) => b.active - a.active || a.key.localeCompare(b.key)).slice(0, limit);
+    return firstPage(
+      out.sort((a, b) => b.active - a.active || a.key.localeCompare(b.key)),
+      size,
+    );
   }
 
   /** One bulkhead with its live occupancy. */
@@ -348,9 +359,10 @@ export class ResilienceService {
     return this.bulkheadInfo(key, store);
   }
 
-  /** Every rate limiter the stores hold plus the ones this process used, emptiest first. */
-  async rateLimiters(query: LimitsQuery = {}): Promise<RateLimiterInfo[]> {
-    const limit = clampLimit(query.limit, 100, 1000);
+  /** Every rate limiter the stores hold plus the ones this process used, emptiest first (one page). */
+  async rateLimiters(query: LimitsQuery = {}): Promise<CursorPageResponse<RateLimiterInfo>> {
+    const size = clampSize(query.first, 100, 1000);
+    const limit = size + 1;
     const keysByStore = await this.collectKeys('rate-limiter', query, limit, (store) =>
       isRateLimitStore(store) ? store.rateLimitKeys?.bind(store) : undefined,
     );
@@ -362,7 +374,10 @@ export class ResilienceService {
       r.remaining !== undefined && r.limit !== undefined
         ? r.remaining / (r.burst ?? r.limit)
         : Number.POSITIVE_INFINITY;
-    return out.sort((a, b) => fill(a) - fill(b) || a.key.localeCompare(b.key)).slice(0, limit);
+    return firstPage(
+      out.sort((a, b) => fill(a) - fill(b) || a.key.localeCompare(b.key)),
+      size,
+    );
   }
 
   /** One rate limiter with its live budget. */
@@ -401,8 +416,11 @@ export class ResilienceService {
     return out;
   }
 
-  /** The most recent resilience events in THIS process (newest first, at most 200 kept). */
-  recentEvents(query: RecentEventsQuery = {}): RecentEvent[] {
+  /**
+   * The most recent resilience events in THIS process (newest first, at most 200 kept), one cursor
+   * page: `first` + `after` for older events, `last` + `before` for newer ones.
+   */
+  recentEvents(query: RecentEventsQuery = {}): CursorPageResponse<RecentEvent> {
     return this.recent.list(query);
   }
 
@@ -603,8 +621,22 @@ function elapsed(started: number): number {
   return Math.round((performance.now() - started) * 100) / 100;
 }
 
-/** Clamp a caller-supplied limit to `[1, max]`, `fallback` when absent or invalid. */
-export function clampLimit(limit: number | undefined, fallback: number, max: number): number {
-  if (limit === undefined || !Number.isFinite(limit)) return fallback;
-  return Math.max(1, Math.min(max, Math.floor(limit)));
+/** Clamp a caller-supplied page size to `[1, max]`, `fallback` when absent or invalid. */
+export function clampSize(size: number | undefined, fallback: number, max: number): number {
+  if (size === undefined || !Number.isFinite(size)) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(size)));
+}
+
+/**
+ * The first `size` of `rows` (`size + 1` were gathered) as a cursor page with no cursors: the
+ * stores list keys without a seek position, so there is no next page to point at — `hasNext` says
+ * more match; narrow with `prefix` / `status` or raise `first`.
+ */
+function firstPage<T>(rows: T[], size: number): CursorPageResponse<T> {
+  return cursorPage(rows.slice(0, size), {
+    nextCursor: null,
+    prevCursor: null,
+    hasNext: rows.length > size,
+    hasPrev: false,
+  });
 }

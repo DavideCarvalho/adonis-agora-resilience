@@ -125,7 +125,7 @@ describe('resilience dev tools', () => {
       expect.objectContaining({ key: 'stripe', by: 'token:3f9a1c2b7d10', via: 'mcp' }),
       expect.any(String),
     );
-    expect(service.recentEvents({ type: 'circuit-reset' })[0]).toMatchObject({
+    expect(service.recentEvents({ type: 'circuit-reset' }).data[0]).toMatchObject({
       by: 'token:3f9a1c2b7d10',
       via: 'mcp',
     });

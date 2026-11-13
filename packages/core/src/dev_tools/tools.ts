@@ -110,9 +110,9 @@ export function resilienceDevTools(resolve: () => Promise<ResilienceService>): D
           ...(status ? { status } : {}),
           ...(str(input.store) ? { store: str(input.store) as string } : {}),
           ...(str(input.prefix) ? { prefix: str(input.prefix) as string } : {}),
-          limit: 1000,
+          first: 1000,
         });
-        return pageOf(circuits, input);
+        return pageOf(circuits.data, input);
       },
     },
     {
@@ -130,7 +130,7 @@ export function resilienceDevTools(resolve: () => Promise<ResilienceService>): D
         const service = await resolve();
         return {
           circuit: await service.getCircuit(key, str(input.store)),
-          recentEvents: service.recentEvents({ key, limit: 10 }),
+          recentEvents: service.recentEvents({ key, first: 10 }).data,
         };
       },
     },
@@ -142,10 +142,10 @@ export function resilienceDevTools(resolve: () => Promise<ResilienceService>): D
         'Busiest first. Returns { items, next }.',
       input: { type: 'object', properties: { store, prefix, limit, page } },
       async run(input) {
-        const items = await (await resolve()).bulkheads({
+        const { data: items } = await (await resolve()).bulkheads({
           ...(str(input.store) ? { store: str(input.store) as string } : {}),
           ...(str(input.prefix) ? { prefix: str(input.prefix) as string } : {}),
-          limit: 1000,
+          first: 1000,
         });
         return pageOf(items, input);
       },
@@ -158,10 +158,10 @@ export function resilienceDevTools(resolve: () => Promise<ResilienceService>): D
         'Emptiest first. Returns { items, next }.',
       input: { type: 'object', properties: { store, prefix, limit, page } },
       async run(input) {
-        const items = await (await resolve()).rateLimiters({
+        const { data: items } = await (await resolve()).rateLimiters({
           ...(str(input.store) ? { store: str(input.store) as string } : {}),
           ...(str(input.prefix) ? { prefix: str(input.prefix) as string } : {}),
-          limit: 1000,
+          first: 1000,
         });
         return pageOf(items, input);
       },
@@ -184,11 +184,11 @@ export function resilienceDevTools(resolve: () => Promise<ResilienceService>): D
       },
       async run(input) {
         const type = str(input.type) as ResilienceEventType | undefined;
-        const items = (await resolve()).recentEvents({
+        const { data: items } = (await resolve()).recentEvents({
           ...(type ? { type } : {}),
           ...(str(input.key) ? { key: str(input.key) as string } : {}),
           ...(str(input.policy) ? { policy: str(input.policy) as string } : {}),
-          limit: intOf(input.limit, 20, 100),
+          first: intOf(input.limit, 20, 100),
         });
         return { items, next: null, scope: 'this process' };
       },

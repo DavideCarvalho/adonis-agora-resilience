@@ -114,3 +114,4 @@ export {
 export type { RedisLike, RedisResilienceStoreOptions } from './stores/redis.js';
 export { RedisResilienceStore, redisResilienceStore } from './stores/redis.js';
 export type { RecentEvent, RecentEventsQuery } from './visibility/recent_events.js';
+export { InvalidCursorError } from './visibility/recent_events.js';

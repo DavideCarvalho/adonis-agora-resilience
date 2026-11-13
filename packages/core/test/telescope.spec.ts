@@ -138,25 +138,33 @@ describe('data providers', () => {
       { page: '1', size: '2' },
       ctx,
     )) as {
-      rows: Record<string, unknown>[];
-      total: number;
+      data: Record<string, unknown>[];
+      meta: Record<string, number>;
     };
-    expect(page1.total).toBe(3);
-    expect(page1.rows).toHaveLength(3);
-    expect(page1.rows[0]?.key).toMatch(/memory store/);
-    expect(page1.rows[1]).toMatchObject({
+    expect(page1.meta).toEqual({
+      total: 3,
+      perPage: 2,
+      currentPage: 1,
+      lastPage: 2,
+      firstPage: 1,
+    });
+    expect(page1.data).toHaveLength(3);
+    expect(page1.data[0]?.key).toMatch(/memory store/);
+    expect(page1.data[1]).toMatchObject({
       key: 'a',
       status: 'open',
       store: 'memory',
       scope: 'process',
     });
-    expect(page1.rows[1]?.until).toBe('in 1m');
-    expect(page1.rows[1]?.resettable).toBe('yes');
-    expect(page1.rows[0]?.resettable).toBe('no');
+    expect(page1.data[1]?.until).toBe('in 1m');
+    expect(page1.data[1]?.resettable).toBe('yes');
+    expect(page1.data[0]?.resettable).toBe('no');
     const page2 = (await provider('resilience.circuits').resolve({ page: 2, size: 2 }, ctx)) as {
-      rows: Record<string, unknown>[];
+      data: Record<string, unknown>[];
+      meta: Record<string, number>;
     };
-    expect(page2.rows.map((r) => r.key)).toEqual(['c']);
+    expect(page2.data.map((r) => r.key)).toEqual(['c']);
+    expect(page2.meta.currentPage).toBe(2);
   });
 
   it('resilience.bulkheads and resilience.rate-limiters list the live limits', async () => {
