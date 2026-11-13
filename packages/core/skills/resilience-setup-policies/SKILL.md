@@ -205,8 +205,9 @@ node ace resilience:policies:list
 ```
 
 Commands call the same `ResilienceService` methods as the Telescope page and the MCP tools; a reset
-emits `circuit-reset` with `by: 'cli:<os user>'`. With the memory store they only see their own
-process, so point them at a shared store (`--store=redis`).
+emits `circuit-reset` with `by: 'cli:<os user>'`. With the memory store the circuit/bulkhead/rate-limiter
+commands only see their own process, so point them at a shared store (`--store=redis`);
+`resilience:policies:list` just reads `config/resilience.ts` and takes no `--store`.
 
 ## Common mistakes
 
