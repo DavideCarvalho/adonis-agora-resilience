@@ -1,6 +1,6 @@
 ---
-title: MCP tools and commands
-description: Let your coding agent read circuits, bulkheads, rate limiters and recent events over the Agora dev MCP endpoint, reset a circuit, and do the same from the terminal with ace commands.
+title: MCP tools
+description: Let your coding agent read circuits, bulkheads, rate limiters and recent events over the Agora dev MCP endpoint, and reset a circuit.
 icon: Terminal
 ---
 
@@ -48,20 +48,9 @@ The reset action only shows up when the endpoint's `actions` allows it. Leave th
 
 ## Commands
 
+The same reads and the circuit reset are ace commands: see [CLI](/docs/resilience/cli).
+
 ```bash
-node ace resilience:circuits                       # every circuit, open first
-node ace resilience:circuits --status=open --json  # machine-readable, for scripts
-node ace resilience:reset payments                 # close the payments circuit on the default store
-node ace resilience:reset search --store=redis     # on a named store
-```
-
-`resilience:reset` logs an audit line and emits `circuit-reset` with `by: 'cli'`. With the memory store, a command resets the circuit of its own process only, so use it with a shared store (Redis, Lucid).
-
-`node ace configure @adonis-agora/resilience` registers the commands. In an app configured before they existed, add them to `adonisrc.ts`:
-
-```ts title="adonisrc.ts"
-commands: [
-  () => import('@adonisjs/core/commands'),
-  () => import('@adonis-agora/resilience/commands'),
-],
+node ace resilience:circuits:list --status=open
+node ace resilience:circuits:reset payments --force
 ```

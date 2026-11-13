@@ -22,6 +22,7 @@ sources:
   - 'DavideCarvalho/adonis-resilience:docs/getting-started.mdx'
   - 'DavideCarvalho/adonis-resilience:docs/policies.mdx'
   - 'DavideCarvalho/adonis-resilience:docs/integrations.mdx'
+  - 'DavideCarvalho/adonis-resilience:docs/cli.mdx'
   - 'DavideCarvalho/adonis-resilience:packages/core/src/resilience_service.ts'
 ---
 
@@ -191,6 +192,22 @@ emitter.on('resilience.circuit.opened', (event) => notifyOncall(event.key))
 
 Source: `docs/integrations.mdx § EventEmitter mirror`,
 `packages/core/src/integration/event_emitter.ts`.
+
+## Inspecting and resetting from the terminal
+
+```bash
+node ace resilience:circuits:list --status=open --json   # { data, meta }
+node ace resilience:circuits:show payments
+node ace resilience:circuits:reset payments --force      # asks without --force; refuses with no TTY
+node ace resilience:bulkheads:list
+node ace resilience:rate-limiters:list
+node ace resilience:policies:list
+```
+
+Commands call the same `ResilienceService` methods as the Telescope page and the MCP tools; a reset
+emits `circuit-reset` with `by: 'cli:<os user>'`. With the memory store the circuit/bulkhead/rate-limiter
+commands only see their own process, so point them at a shared store (`--store=redis`);
+`resilience:policies:list` just reads `config/resilience.ts` and takes no `--store`.
 
 ## Common mistakes
 

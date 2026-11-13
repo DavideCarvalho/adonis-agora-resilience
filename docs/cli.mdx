@@ -1,0 +1,73 @@
+---
+title: CLI
+description: Read circuits, bulkheads, rate limiters and policies, and reset a circuit, from the terminal with node ace.
+icon: Terminal
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Everything the [Telescope page](/docs/resilience/telescope) and the [MCP tools](/docs/resilience/mcp-tools) show about live state, and the circuit reset, is also an ace command.
+
+| Command | What it does |
+| --- | --- |
+| `resilience:policies:list` | the named policies and what each is made of |
+| `resilience:circuits:list` | circuits with their live state, open first |
+| `resilience:circuits:show <key>` | one circuit |
+| `resilience:circuits:reset <key>` | force a circuit back to closed |
+| `resilience:bulkheads:list` | bulkheads with the calls running now, busiest first |
+| `resilience:bulkheads:show <key>` | one bulkhead |
+| `resilience:rate-limiters:list` | rate limiters with the budget left, emptiest first |
+| `resilience:rate-limiters:show <key>` | one rate limiter |
+| `resilience:doctor` | [health check](/docs/resilience/doctor) |
+
+## Reading
+
+```bash
+node ace resilience:circuits:list                      # every circuit, open first
+node ace resilience:circuits:list --status=open        # only open ones
+node ace resilience:circuits:list --store=redis --prefix=pay
+node ace resilience:circuits:show payments
+node ace resilience:bulkheads:list
+node ace resilience:rate-limiters:show sms --store=redis
+node ace resilience:policies:list
+```
+
+| Flag | On | |
+| --- | --- | --- |
+| `--json` | every command | print JSON: lists as `{ data, meta }`, `show` as the object |
+| `--store=<name>` | lists, `show`, `reset` | a store name from `config/resilience.ts`; lists default to every store, the others to the default store |
+| `--prefix=<text>` | lists | only keys starting with this |
+| `--first=<n>` | lists | how many rows (default 100, at most 1000); `meta.hasNext` says more match |
+| `--status=<state>` | `circuits:list` | `closed`, `open` or `half-open` |
+
+`resilience:policies:list` exits with `1` when a policy's factory throws.
+
+## Resetting a circuit
+
+```bash
+node ace resilience:circuits:reset payments                 # asks first
+node ace resilience:circuits:reset search --store=redis --force
+```
+
+The command asks before resetting. Without a terminal (CI, scripts) it refuses unless you pass `--force`. A reset logs an audit line and emits `circuit-reset` with `by: 'cli:<your OS user>'` and `via: 'cli'`, like a reset from Telescope or MCP.
+
+<Callout type="warn">
+With the memory store, a command sees and resets the state of its own process only. Use a shared store (Redis, Lucid) for these commands to reflect your running app.
+</Callout>
+
+Every command exits with `1` on an unknown store, a bad flag or a refused reset.
+
+## Recent events
+
+Recent events live in the memory of the process that served the traffic, so an ace command has none of its own. Read them from the [Telescope page](/docs/resilience/telescope) (every process, when Telescope's storage is shared) or with the `resilience_list_recent_events` MCP tool.
+
+## Registering the commands
+
+`node ace configure @adonis-agora/resilience` registers the commands. In an app configured before they existed, add them to `adonisrc.ts`:
+
+```ts title="adonisrc.ts"
+commands: [
+  () => import('@adonisjs/core/commands'),
+  () => import('@adonis-agora/resilience/commands'),
+],
+```

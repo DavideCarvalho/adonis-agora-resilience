@@ -129,3 +129,14 @@ providers: [
   () => import('@adonis-agora/resilience/resilience_provider'),
 ],
 ```
+
+## Renamed commands
+
+The commands follow `resilience:<noun>:<verb>`. Update scripts and runbooks:
+
+| Before | After |
+| --- | --- |
+| `node ace resilience:circuits` | `node ace resilience:circuits:list` |
+| `node ace resilience:reset <key>` | `node ace resilience:circuits:reset <key> --force` |
+
+`resilience:circuits:reset` asks for confirmation unless you pass `--force`, and refuses without a terminal. See [CLI](/docs/resilience/cli) for the other commands.
