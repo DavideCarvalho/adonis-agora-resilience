@@ -306,6 +306,12 @@ describe('resilience commands', () => {
       const command = await exec(ResiliencePoliciesList, []);
       command.assertFailed();
       expect(output(command)).toContain('missing key');
+      const json = await exec(ResiliencePoliciesList, ['--json']);
+      json.assertFailed();
+      expect(JSON.parse(printed(json)).data[0]).toMatchObject({
+        name: 'broken',
+        error: 'missing key',
+      });
     });
   });
 });

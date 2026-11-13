@@ -13,6 +13,8 @@ export class ResiliencePoliciesList extends ResilienceCommand {
 
   override async run(): Promise<void> {
     const policies = (await this.service()).describePolicies();
+    // A policy whose factory throws is a failure, in the table and in JSON alike.
+    if (policies.some((p) => p.error)) this.exitCode = 1;
     if (this.json) return this.printJson({ data: policies });
     if (policies.length === 0) {
       this.logger.info('No named policies.');
@@ -24,6 +26,5 @@ export class ResiliencePoliciesList extends ResilienceCommand {
       table.row([p.name, p.error ? `error: ${p.error}` : p.kinds.join(', ')]);
     }
     table.render();
-    if (policies.some((p) => p.error)) this.exitCode = 1;
   }
 }
