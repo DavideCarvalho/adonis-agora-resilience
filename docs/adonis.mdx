@@ -192,12 +192,12 @@ export default class InventoryService {
 | `circuit(key, store?).snapshot()` | read the current `CircuitSnapshot` (`status`, `failures`, `openUntil?`) |
 | `circuit(key, store?).reset()` | force a circuit back to closed |
 | `resetCircuit(key, { store?, by?, via? })` | reset, log an audit line, emit `circuit-reset`, return the circuit |
-| `circuits({ store?, status?, prefix?, limit? })` | list circuits with their live state, open first |
+| `circuits({ store?, status?, prefix?, first? })` | one page of circuits with their live state, open first |
 | `getCircuit(key, store?)` | one circuit with its live state |
-| `bulkheads({ store?, prefix?, limit? })` / `getBulkhead(key, store?)` | bulkheads with their live occupancy |
-| `rateLimiters({ store?, prefix?, limit? })` / `getRateLimiter(key, store?)` | rate limiters with their remaining budget |
+| `bulkheads({ store?, prefix?, first? })` / `getBulkhead(key, store?)` | one page of bulkheads with their live occupancy |
+| `rateLimiters({ store?, prefix?, first? })` / `getRateLimiter(key, store?)` | one page of rate limiters with their remaining budget |
 | `policyNames()` / `describePolicies()` | the named policies and what each is made of |
-| `recentEvents({ type?, key?, policy?, limit? })` | the last events of this process, newest first |
+| `recentEvents({ type?, key?, policy?, first?, after?, last?, before? })` | the last events of this process, newest first, one cursor page |
 
 `circuitStore()` is how you point a hand-built breaker at a store from your config, instead of constructing a second one that tracks its own, separate circuits:
 
@@ -236,9 +236,9 @@ import resilience from '@adonis-agora/resilience/services/main'
 export default class ResilienceController {
   async index({ response }: HttpContext) {
     return response.ok({
-      circuits: await resilience.circuits({ status: 'open' }),
+      circuits: (await resilience.circuits({ status: 'open' })).data,
       policies: resilience.describePolicies(),
-      recent: resilience.recentEvents({ limit: 20 }),
+      recent: resilience.recentEvents({ first: 20 }).data,
     })
   }
 
@@ -271,4 +271,26 @@ Each circuit reads like this:
 [{ name: 'payments', kinds: ['timeout(2s)', 'retry(3, exp 200ms)', 'circuit-breaker(key=payments, threshold=5, cooldown=30s)'] }]
 ```
 
-`recentEvents()` reads the last 200 events of the current process (errors already reduced to `{ name, message }`).
+The lists answer the [filter](/docs/filter) list format, `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }`. `circuits()`, `bulkheads()` and `rateLimiters()` return the first `first` rows (default 100, at most 1000): `meta.hasNext` says more match, so narrow with `prefix` or `status`, or raise `first`.
+
+`recentEvents()` reads the last 200 events of the current process (errors already reduced to `{ name, message }`), `first` at a time (default 20). Page to older events with the previous page's `meta.nextCursor`:
+
+```ts title="app/controllers/admin/resilience_events_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import resilience from '@adonis-agora/resilience/services/main'
+import { InvalidCursorError } from '@adonis-agora/resilience'
+
+export default class ResilienceEventsController {
+  async index({ request, response }: HttpContext) {
+    const { after } = request.qs()
+    try {
+      return response.ok(resilience.recentEvents({ policy: 'payments', first: 50, after }))
+    } catch (error) {
+      if (error instanceof InvalidCursorError) return response.badRequest({ message: error.message })
+      throw error
+    }
+  }
+}
+```
+
+`last` with `before` (a page's `meta.prevCursor`) walks back to newer events. Cursors stay valid while new events arrive.

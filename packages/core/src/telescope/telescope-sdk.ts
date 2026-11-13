@@ -117,7 +117,14 @@ export type Panel =
       style?: 'area' | 'stacked';
     }
   | { kind: 'topN'; title: string; data: DataBinding; limit?: number }
-  | { kind: 'table'; title: string; data: DataBinding; columns: Column[]; paged?: boolean }
+  | {
+      kind: 'table';
+      title: string;
+      data: DataBinding;
+      columns: Column[];
+      /** The provider answers the offset page `{ data, meta }` for the `page` / `size` it gets. */
+      paged?: boolean;
+    }
   | {
       kind: 'distribution';
       title: string;

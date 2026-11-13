@@ -216,7 +216,7 @@ describe('service listing', () => {
     const running = service.execute('sms', () => gate.promise);
     await tick();
 
-    expect(await service.bulkheads()).toEqual([
+    expect((await service.bulkheads()).data).toEqual([
       {
         key: 'sms-pool',
         store: 'memory',
@@ -227,7 +227,7 @@ describe('service listing', () => {
         scope: 'process',
       },
     ]);
-    expect(await service.rateLimiters()).toEqual([
+    expect((await service.rateLimiters()).data).toEqual([
       {
         key: 'sms',
         store: 'memory',

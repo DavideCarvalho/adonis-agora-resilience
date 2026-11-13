@@ -11,7 +11,7 @@ import type { Policy } from './policy.js';
 import { ResilienceService } from './resilience_service.js';
 import { processMemoryStore } from './stores/resolve.js';
 import { KnownKeys } from './visibility/known_keys.js';
-import { RecentEvents } from './visibility/recent_events.js';
+import { InvalidCursorError, RecentEvents } from './visibility/recent_events.js';
 
 const fail = () => Promise.reject(new Error('boom'));
 const ok = () => Promise.resolve('ok');
@@ -192,7 +192,7 @@ describe('circuits()', () => {
     await memory.record('other', { threshold: 5, cooldownMs: 1 }, false, false);
     await expect(service.execute('pay', fail)).rejects.toThrow();
 
-    const circuits = await service.circuits();
+    const { data: circuits } = await service.circuits();
     expect(circuits.map((c) => c.key)).toEqual(['pay', 'other']);
     expect(circuits[0]).toMatchObject({
       key: 'pay',
@@ -207,9 +207,17 @@ describe('circuits()', () => {
     expect(circuits[1]).toMatchObject({ key: 'other', status: 'closed', failures: 1 });
     expect(circuits[1]?.policy).toBeUndefined();
 
-    expect((await service.circuits({ status: 'open' })).map((c) => c.key)).toEqual(['pay']);
-    expect((await service.circuits({ prefix: 'oth' })).map((c) => c.key)).toEqual(['other']);
-    expect(await service.circuits({ limit: 1 })).toHaveLength(1);
+    expect((await service.circuits({ status: 'open' })).data.map((c) => c.key)).toEqual(['pay']);
+    expect((await service.circuits({ prefix: 'oth' })).data.map((c) => c.key)).toEqual(['other']);
+    const firstOnly = await service.circuits({ first: 1 });
+    expect(firstOnly.data.map((c) => c.key)).toEqual(['pay']);
+    expect(firstOnly.meta).toEqual({
+      nextCursor: null,
+      prevCursor: null,
+      hasNext: true,
+      hasPrev: false,
+    });
+    expect((await service.circuits({ first: 2 })).meta.hasNext).toBe(false);
   });
 
   it('falls back to the keys seen in this process when the store cannot list keys', async () => {
@@ -220,9 +228,9 @@ describe('circuits()', () => {
       defaultStore: 'shared',
       policies: { a: () => circuitBreaker({ key: 'a', threshold: 3, cooldownMs: 1 }) },
     });
-    expect(await service.circuits()).toEqual([]);
+    expect((await service.circuits()).data).toEqual([]);
     await service.execute('a', ok);
-    const [circuit] = await service.circuits({ store: 'shared' });
+    const [circuit] = (await service.circuits({ store: 'shared' })).data;
     expect(circuit).toMatchObject({
       key: 'a',
       store: 'shared',
@@ -348,7 +356,7 @@ describe('recent events', () => {
     });
     const secret = Object.assign(new Error('nope'), { token: 'sk-live' });
     await expect(service.execute('p', () => Promise.reject(secret))).rejects.toThrow();
-    const [event] = service.recentEvents();
+    const [event] = service.recentEvents().data;
     expect(event).toMatchObject({
       type: 'retry',
       policy: 'p',
@@ -358,7 +366,7 @@ describe('recent events', () => {
     expect(typeof event?.at).toBe('number');
   });
 
-  it('is bounded and filters by type, key, policy and limit', () => {
+  it('is bounded and filters by type, key and policy', () => {
     const ring = new RecentEvents(200);
     for (let i = 0; i < 250; i++) {
       ring.push({
@@ -369,12 +377,52 @@ describe('recent events', () => {
       });
     }
     expect(ring.size).toBe(200);
-    expect(ring.list({ limit: 1000 })).toHaveLength(200);
-    expect(ring.list({ limit: 1 })[0]?.at).toBe(249);
-    expect(ring.list({ limit: 1000 }).at(-1)?.at).toBe(50);
-    expect(ring.list({ type: 'retry', limit: 1000 }).every((e) => e.type === 'retry')).toBe(true);
-    expect(ring.list({ key: 'k1', limit: 1000 }).every((e) => e.key === 'k1')).toBe(true);
-    expect(ring.list({ policy: 'p2', limit: 3 })).toHaveLength(3);
-    expect(ring.list({ type: ['retry', 'timeout'], limit: 5 })).toHaveLength(5);
+    expect(ring.list({ first: 1000 }).data).toHaveLength(200);
+    expect(ring.list({ first: 1 }).data[0]?.at).toBe(249);
+    expect(ring.list({ first: 1000 }).data.at(-1)?.at).toBe(50);
+    expect(ring.list().data).toHaveLength(20);
+    expect(ring.list({ type: 'retry', first: 1000 }).data.every((e) => e.type === 'retry')).toBe(
+      true,
+    );
+    expect(ring.list({ key: 'k1', first: 1000 }).data.every((e) => e.key === 'k1')).toBe(true);
+    expect(ring.list({ policy: 'p2', first: 3 }).data).toHaveLength(3);
+    expect(ring.list({ type: ['retry', 'timeout'], first: 5 }).data).toHaveLength(5);
+  });
+
+  it('pages with cursors, forward and backward, stable while new events arrive', () => {
+    const ring = new RecentEvents(50);
+    for (let i = 0; i < 30; i++) ring.push({ type: 'retry', key: `k${i % 2}`, at: i });
+
+    // Forward through k0's events (newest first), 4 at a time.
+    const forward: number[] = [];
+    let page = ring.list({ key: 'k0', first: 4 });
+    expect(page.meta).toMatchObject({ hasPrev: false, prevCursor: null, hasNext: true });
+    const pages = [page];
+    forward.push(...page.data.map((e) => e.at));
+    while (page.meta.nextCursor) {
+      // New events between pages do not shift the walk.
+      ring.push({ type: 'retry', key: 'k0', at: 1000 + forward.length });
+      page = ring.list({ key: 'k0', first: 4, after: page.meta.nextCursor });
+      expect(page.meta.hasPrev).toBe(true);
+      pages.push(page);
+      forward.push(...page.data.map((e) => e.at));
+    }
+    expect(forward).toEqual([28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0]);
+    expect(page.meta).toMatchObject({ hasNext: false, nextCursor: null });
+
+    // Backward from the last page returns the page before it.
+    const last = pages.at(-1)!;
+    const back = ring.list({ key: 'k0', last: 4, before: last.meta.prevCursor! });
+    expect(back.data.map((e) => e.at)).toEqual(pages.at(-2)!.data.map((e) => e.at));
+    expect(back.meta.hasNext).toBe(true);
+
+    // Backward from the second page reaches the first page and the events that arrived since.
+    const newer = ring.list({ key: 'k0', last: 100, before: pages[1]!.meta.prevCursor! });
+    const arrived = newer.data.filter((e) => e.at >= 1000);
+    expect(arrived.length).toBeGreaterThan(0);
+    expect(newer.data.slice(arrived.length).map((e) => e.at)).toEqual([28, 26, 24, 22]);
+    expect(newer.meta).toMatchObject({ hasPrev: false, prevCursor: null, hasNext: true });
+
+    expect(() => ring.list({ after: 'not-a-cursor' })).toThrow(InvalidCursorError);
   });
 });

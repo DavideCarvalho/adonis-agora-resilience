@@ -40,10 +40,10 @@ export default class ResilienceCircuits extends BaseCommand {
       this.exitCode = 1;
       return;
     }
-    const circuits = await resilience.circuits({
+    const { data: circuits } = await resilience.circuits({
       ...(this.status !== undefined ? { status: this.status as CircuitStatus } : {}),
       ...(this.store !== undefined ? { store: this.store } : {}),
-      limit: 1000,
+      first: 1000,
     });
     if (this.json) {
       this.logger.log(JSON.stringify(circuits, null, 2));

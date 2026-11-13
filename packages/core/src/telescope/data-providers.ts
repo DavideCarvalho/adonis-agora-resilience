@@ -1,3 +1,4 @@
+import { offsetPage, parsePageParams } from '@adonis-agora/filter';
 import { formatMs } from '../describe.js';
 import { type CircuitInfo, ResilienceService } from '../resilience_service.js';
 import { CHART_EVENTS } from './dashboard.js';
@@ -97,8 +98,8 @@ export function resilienceStatsProvider(): DataProvider {
     async resolve(query, ctx) {
       const metric = String(query?.metric ?? 'open');
       if (metric === 'open' || metric === 'half-open') {
-        const circuits = await (await service(ctx)).circuits({ status: metric, limit: 1000 });
-        return { value: circuits.length };
+        const circuits = await (await service(ctx)).circuits({ status: metric, first: 1000 });
+        return { value: circuits.data.length };
       }
       const windowMs = numberParam(query?.windowMs, HOUR, 60_000, 7 * 24 * HOUR);
       const now = Date.now();
@@ -135,16 +136,16 @@ function circuitRow(c: CircuitInfo, now: number) {
 }
 
 /**
- * `resilience.circuits` — the live circuits (paged). On page 1, a first row warns when some circuits
- * live in the memory store, whose state is the telescope process's only.
+ * `resilience.circuits` — the live circuits, as an offset page (`page` + `size`, answered with
+ * `{ data, meta }`). On page 1, a first row warns when some circuits live in the memory store,
+ * whose state is the telescope process's only.
  */
 export function resilienceCircuitsProvider(): DataProvider {
   return {
     name: 'resilience.circuits',
     async resolve(query, ctx) {
-      const page = numberParam(query?.page, 1, 1, 10_000);
-      const size = numberParam(query?.size, 25, 1, 200);
-      const circuits = await (await service(ctx)).circuits({ limit: 1000 });
+      const { page, size } = parsePageParams(query ?? {}, { defaultSize: 25, maxSize: 200 });
+      const { data: circuits } = await (await service(ctx)).circuits({ first: 1000 });
       const now = Date.now();
       const rows: Record<string, unknown>[] = circuits
         .slice((page - 1) * size, page * size)
@@ -161,7 +162,7 @@ export function resilienceCircuitsProvider(): DataProvider {
           resettable: 'no',
         });
       }
-      return { rows, total: circuits.length, page, size };
+      return offsetPage(rows, { total: circuits.length, page, size });
     },
   };
 }
@@ -171,7 +172,7 @@ export function resilienceBulkheadsProvider(): DataProvider {
   return {
     name: 'resilience.bulkheads',
     async resolve(_query, ctx) {
-      const bulkheads = await (await service(ctx)).bulkheads({ limit: 200 });
+      const { data: bulkheads } = await (await service(ctx)).bulkheads({ first: 200 });
       return {
         rows: bulkheads.map((b) => ({
           key: b.key,
@@ -191,7 +192,7 @@ export function resilienceRateLimitersProvider(): DataProvider {
   return {
     name: 'resilience.rate-limiters',
     async resolve(_query, ctx) {
-      const limiters = await (await service(ctx)).rateLimiters({ limit: 200 });
+      const { data: limiters } = await (await service(ctx)).rateLimiters({ first: 200 });
       return {
         rows: limiters.map((r) => ({
           key: r.key,
@@ -271,13 +272,13 @@ const TRANSITIONS = new Set([
   'circuit-reset',
 ]);
 
-/** `resilience.transitions` — the latest circuit state changes and resets, newest first. */
+/** `resilience.transitions` — the latest circuit state changes and resets, newest first (`first`, default 50). */
 export function resilienceTransitionsProvider(): DataProvider {
   return {
     name: 'resilience.transitions',
     async resolve(query, ctx) {
       const windowMs = numberParam(query?.windowMs, 24 * HOUR, 60_000, 7 * 24 * HOUR);
-      const limit = numberParam(query?.limit, 50, 1, 500);
+      const limit = numberParam(query?.first, 50, 1, 500);
       const rows: Record<string, unknown>[] = [];
       const entries = [...(await resilienceEntries(ctx, windowMs))].sort(
         (a, b) => timeOf(b) - timeOf(a),

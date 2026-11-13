@@ -45,7 +45,7 @@ describe('resilience commands', () => {
     await command.exec();
     command.assertSucceeded();
     expect((await memory.snapshot('stripe')).status).toBe('closed');
-    expect(service.recentEvents({ type: 'circuit-reset' })[0]).toMatchObject({
+    expect(service.recentEvents({ type: 'circuit-reset' }).data[0]).toMatchObject({
       key: 'stripe',
       by: 'cli',
       via: 'cli',
