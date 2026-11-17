@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 1.0.0-rc.11
+
+### Patch Changes
+
+- fix(deps): update dependency @adonis-agora/filter to v1.0.0-rc.6 ([#164](https://github.com/DavideCarvalho/adonis-agora-resilience/issues/164))
+
 ## 1.0.0-rc.10
 
 ### Minor Changes
