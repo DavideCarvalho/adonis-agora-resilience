@@ -7,6 +7,7 @@ import type { ResilienceStore } from '../breaker/store.js';
 import type { Clock } from '../clock.js';
 import type { LucidDatabase, LucidResilienceStoreOptions } from './lucid.js';
 import type { RedisLike, RedisResilienceStoreOptions } from './redis.js';
+import { describeStore } from './stack.js';
 
 /**
  * Runtime context a {@link StoreProvider} receives when the resilience provider builds the
@@ -111,7 +112,7 @@ export const stores = {
 
   /** SQL circuit store backed by `@adonisjs/lucid` (Postgres / MySQL / SQLite). */
   lucid(config: LucidStoreConfig = {}): StoreProvider {
-    return kind(async (ctx) => {
+    const provider = kind(async (ctx) => {
       const db = await resolveService<{ connection(name: string): unknown }>(
         ctx,
         'lucid.db',
@@ -122,11 +123,12 @@ export const stores = {
       const client = (connection ? db.connection(connection) : db) as unknown as LucidDatabase;
       return lucidResilienceStore(client, opts);
     }, 'lucid');
+    return describeStore(provider, { kind: 'lucid', connection: config.connection });
   },
 
   /** Distributed circuit store backed by `@adonisjs/redis` / `ioredis`. */
   redis(config: RedisStoreConfig = {}): StoreProvider {
-    return kind(async (ctx) => {
+    const provider = kind(async (ctx) => {
       const redisService = await resolveService<{ connection(name?: string): unknown }>(
         ctx,
         'redis',
@@ -139,5 +141,6 @@ export const stores = {
       const client = (conn as { ioConnection: RedisLike }).ioConnection;
       return redisResilienceStore(client, opts);
     }, 'redis');
+    return describeStore(provider, { kind: 'redis', connection: config.connection });
   },
 };
