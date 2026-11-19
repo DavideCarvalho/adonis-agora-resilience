@@ -5,6 +5,7 @@ import { registerDevTools } from '../src/dev_tools/tools.js';
 import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
 import { resilienceDoctorChecks } from '../src/doctor/checks.js';
 import { ResilienceService } from '../src/resilience_service.js';
+import { describeConfiguredStores } from '../src/stores/stack.js';
 import { resilienceTelescopeExtension } from '../src/telescope/extension.js';
 import { type ExtensionsContainer, registerTelescopeExtension } from '../src/telescope/register.js';
 
@@ -28,6 +29,12 @@ export default class ResilienceProvider {
 
   register() {
     void registerDoctorChecks(this.app.container as never, resilienceDoctorChecks());
+    // What the circuit stores run on, with the app's default connections resolved, for
+    // telescope's Architecture page.
+    describeConfiguredStores(
+      this.app.config.get<ResilienceConfig['stores']>('resilience.stores', undefined),
+      this.app.config,
+    );
 
     const telescope = this.app.config.get<ResilienceConfig['telescope']>(
       'resilience.telescope',
