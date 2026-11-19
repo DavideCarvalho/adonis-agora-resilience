@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 1.0.0-rc.12
+
+### Patch Changes
+
+- [#168](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/168) [`41148d3`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/41148d3d9d67fcada5a051f1e2ada0b98aad172e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The Lucid and Redis circuit stores describe what they run on (`breaker state` on their connection, the app's default one when unset) under `Symbol.for('@adonis-agora/stack')`, so telescope's Architecture page shows them with no extra code.
+
 ## 1.0.0-rc.11
 
 ### Patch Changes
