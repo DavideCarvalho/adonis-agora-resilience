@@ -9,6 +9,8 @@ interface Row {
   failures: number;
   open_until: number;
   probes: number;
+  created_at?: number | null;
+  updated_at?: number | null;
 }
 
 /**
@@ -23,6 +25,10 @@ class FakeSqlDriver implements SqlDriver {
   roundTrips = 0;
   rowWrites = 0;
   private lock: Promise<void> = Promise.resolve();
+
+  /** `legacy`: a circuits table from before `created_at` / `updated_at`. */
+  constructor(private legacy = false) {}
+
   async run(sql: string, params: unknown[]): Promise<void> {
     await this.execute(sql, params);
   }
@@ -51,16 +57,29 @@ class FakeSqlDriver implements SqlDriver {
     return this.execute(sql, params);
   }
 
-  async exec(): Promise<void> {}
+  readonly ddl: string[] = [];
+  async exec(sql: string): Promise<void> {
+    this.ddl.push(sql.trim());
+    if (sql.includes('ADD COLUMN updated_at')) this.legacy = false;
+  }
 
   private async execute(sql: string, params: unknown[]): Promise<unknown[]> {
     await new Promise((r) => setImmediate(r));
     this.roundTrips += 1;
     const text = sql.trim();
+    if (text.includes('information_schema')) throw new Error('no such table: information_schema');
+    if (text.includes('created_at') && this.legacy) throw new Error('no such column: created_at');
+    if (text.includes('WHERE 1 = 0')) return [];
     if (text.startsWith('INSERT')) {
-      const key = params[0] as string;
+      const [key, created, updated] = params as [string, number?, number?];
       if (!this.rows.has(key)) {
-        this.rows.set(key, { status: 'closed', failures: 0, open_until: 0, probes: 0 });
+        this.rows.set(key, {
+          status: 'closed',
+          failures: 0,
+          open_until: 0,
+          probes: 0,
+          ...(created === undefined ? {} : { created_at: created, updated_at: updated ?? null }),
+        });
         this.rowWrites += 1;
       }
       return [];
@@ -84,23 +103,22 @@ class FakeSqlDriver implements SqlDriver {
       return row ? [{ ...row }] : [];
     }
     if (text.includes("status = 'closed'")) {
-      const row = this.rows.get(params[0] as string);
+      const stamped = text.includes('updated_at');
+      const row = this.rows.get((stamped ? params[1] : params[0]) as string);
       if (row && (row.status !== 'closed' || row.failures !== 0 || row.open_until !== 0)) {
         Object.assign(row, { status: 'closed', failures: 0, open_until: 0 });
+        if (stamped) row.updated_at = params[0] as number;
         this.rowWrites += 1;
       }
       return [];
     }
-    const [status, failures, open_until, probes, key] = params as [
-      string,
-      number,
-      number,
-      number,
-      string,
-    ];
+    const stamped = params.length === 6;
+    const [status, failures, open_until, probes] = params as [string, number, number, number];
+    const key = params[stamped ? 5 : 4] as string;
     const row = this.rows.get(key);
     if (row) {
       Object.assign(row, { status, failures, open_until, probes });
+      if (stamped) row.updated_at = params[4] as number;
       this.rowWrites += 1;
     }
     return [];
@@ -124,6 +142,9 @@ describe('SqlResilienceStore round trips', () => {
   it('a successful call on a closed circuit takes no transaction and writes nothing', async () => {
     const driver = new FakeSqlDriver();
     const store = new SqlResilienceStore(driver, { clock: new FakeClock() });
+    // Whether the table has the timestamp columns is probed once per store, not per call.
+    await store.hasTimestampColumns();
+    driver.reset();
     for (let i = 0; i < 5; i++) {
       const a = await store.admit('k', cfg);
       expect(a).toEqual({ allow: true, probe: false, status: 'closed' });
@@ -167,5 +188,69 @@ describe('SqlResilienceStore round trips', () => {
     driver.reset();
     expect(await store.admit('k', cfg)).toEqual({ allow: true, probe: true, status: 'half-open' });
     expect(driver.transactions).toBe(1);
+  });
+});
+
+function clockAt(ms: number): FakeClock {
+  const clock = new FakeClock();
+  clock.advance(ms);
+  return clock;
+}
+
+describe('SqlResilienceStore timestamps', () => {
+  it('stamps created_at once and moves updated_at on each state change', async () => {
+    const driver = new FakeSqlDriver();
+    const clock = clockAt(1_000);
+    const store = new SqlResilienceStore(driver, { clock });
+
+    await store.record('k', cfg, false, false);
+    const first = await store.snapshot('k');
+    expect(first.createdAt).toEqual(new Date(1_000));
+    expect(first.updatedAt).toEqual(new Date(1_000));
+
+    clock.advance(500);
+    await store.record('k', cfg, false, false);
+    clock.advance(500);
+    await store.record('k', cfg, true, false);
+    const later = await store.snapshot('k');
+    expect(later.createdAt).toEqual(new Date(1_000));
+    expect(later.updatedAt).toEqual(new Date(2_000));
+  });
+
+  it('a success on a clean circuit still writes nothing, so updated_at stays put', async () => {
+    const driver = new FakeSqlDriver();
+    const clock = clockAt(1_000);
+    const store = new SqlResilienceStore(driver, { clock });
+    await store.record('k', cfg, false, false);
+    await store.record('k', cfg, true, false);
+    clock.advance(10_000);
+    driver.reset();
+    await store.record('k', cfg, true, false);
+    expect(driver.rowWrites).toBe(0);
+    expect((await store.snapshot('k')).updatedAt).toEqual(new Date(1_000));
+  });
+
+  it('a table from before the columns keeps working, without dates', async () => {
+    const driver = new FakeSqlDriver(true);
+    const store = new SqlResilienceStore(driver, { clock: clockAt(1_000) });
+    expect(await store.hasTimestampColumns()).toBe(false);
+    await store.record('k', cfg, false, false);
+    const snapshot = await store.snapshot('k');
+    expect(snapshot).toEqual({ status: 'closed', failures: 1 });
+  });
+
+  it('ensureSchema adds the missing columns as nullable BIGINT without a default', async () => {
+    const driver = new FakeSqlDriver(true);
+    const store = new SqlResilienceStore(driver, { clock: clockAt(1_000) });
+    await store.ensureSchema();
+    expect(driver.ddl).toContain(
+      'ALTER TABLE resilience_circuits ADD COLUMN created_at BIGINT NULL;',
+    );
+    expect(driver.ddl).toContain(
+      'ALTER TABLE resilience_circuits ADD COLUMN updated_at BIGINT NULL;',
+    );
+    expect(await store.hasTimestampColumns()).toBe(true);
+    await store.record('k', cfg, false, false);
+    expect((await store.snapshot('k')).createdAt).toEqual(new Date(1_000));
   });
 });

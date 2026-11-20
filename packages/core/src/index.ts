@@ -18,6 +18,7 @@ export {
   bulkheadsDdl,
   CIRCUITS_DDL,
   circuitsDdl,
+  circuitTimestampsDdl,
   MYSQL_KEY_LENGTH,
   quoteIdentifier,
   RATE_LIMITS_DDL,

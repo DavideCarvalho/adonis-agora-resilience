@@ -39,6 +39,8 @@ interface CircuitSnapshot {
   status: CircuitStatus     // 'closed' | 'open' | 'half-open'
   failures: number          // consecutive failures counted so far
   openUntil?: number        // epoch ms the cooldown expires; absent when closed
+  createdAt?: Date          // SQL stores: when the circuit was first written
+  updatedAt?: Date          // SQL stores: when its state last changed
 }
 ```
 
@@ -333,6 +335,8 @@ export default class extends BaseSchema {
       table.integer('failures').notNullable().defaultTo(0)
       table.bigInteger('open_until').notNullable().defaultTo(0)
       table.integer('probes').notNullable().defaultTo(0)
+      table.bigInteger('created_at').nullable()
+      table.bigInteger('updated_at').nullable()
     })
 
     // only needed when you use bulkhead() / rateLimiter() on this store
@@ -359,6 +363,14 @@ export default class extends BaseSchema {
 ```
 
 The columns match the exported DDL. If you prefer the raw strings, run `for (const ddl of RESILIENCE_DDL) this.schema.raw(ddl)` instead.
+
+`created_at` / `updated_at` on the circuits table are epoch ms: when the circuit was first written and when its state last changed. They are written by the statements the breaker runs anyway, so a successful call on a closed circuit still writes nothing. A circuits table created before them keeps working, just without dates (`agora:doctor --deep` warns); with `autoCreateSchema` on the store adds them, otherwise add them in a migration:
+
+```ts
+import { circuitTimestampsDdl } from '@adonis-agora/resilience'
+
+for (const ddl of circuitTimestampsDdl()) this.schema.raw(ddl)
+```
 
 </Step>
 <Step>

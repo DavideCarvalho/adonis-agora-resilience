@@ -83,6 +83,13 @@ export interface CircuitInfo {
   failures: number;
   /** Epoch ms the cooldown ends, when open. */
   openUntil?: number;
+  /**
+   * When the store first wrote the circuit, ISO 8601; `null` when the store does not record it (Redis,
+   * memory) or the row predates it. Always set by {@link ResilienceService.circuits}.
+   */
+  createdAt?: string | null;
+  /** When the circuit's state last changed, ISO 8601, or `null` (see `createdAt`). */
+  updatedAt?: string | null;
   /** `process` for the in-memory store: the state belongs to this process only. */
   scope: StoreScope;
   /** The breaker's `threshold`, when this process has used the circuit. */
@@ -118,6 +125,12 @@ export interface RateLimiterInfo {
   burst?: number;
   /** Raw tokens stored, when the config is unknown. */
   tokens?: number;
+  /**
+   * When the bucket was last drawn from, ISO 8601; `null` for an unused (or expired) bucket. A bucket
+   * is rewritten on every call, so it has no `createdAt`. Always set by
+   * {@link ResilienceService.rateLimiters}.
+   */
+  updatedAt?: string | null;
   scope: StoreScope;
 }
 
@@ -490,6 +503,8 @@ export class ResilienceService {
       store: this.storeName(store),
       status: snapshot.status,
       failures: snapshot.failures,
+      createdAt: isoOrNull(snapshot.createdAt),
+      updatedAt: isoOrNull(snapshot.updatedAt),
       scope: this.storeScope(store),
     };
     if (snapshot.openUntil !== undefined) info.openUntil = snapshot.openUntil;
@@ -558,6 +573,7 @@ export class ResilienceService {
     const info: RateLimiterInfo = {
       key,
       store: this.storeName(store),
+      updatedAt: isoOrNull(snapshot.updatedAt),
       scope: this.storeScope(store),
     };
     const config = known?.config as RateLimitConfig | undefined;
@@ -639,4 +655,15 @@ function firstPage<T>(rows: T[], size: number): CursorPageResponse<T> {
     hasNext: rows.length > size,
     hasPrev: false,
   });
+}
+
+/** A store timestamp (`Date`, epoch ms, Luxon `DateTime` or a string) as ISO 8601, or `null`. */
+function isoOrNull(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  const raw =
+    typeof value === 'object' && typeof (value as { toJSDate?: unknown }).toJSDate === 'function'
+      ? (value as { toJSDate(): Date }).toJSDate()
+      : value;
+  const date = raw instanceof Date ? raw : new Date(raw as string | number);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }

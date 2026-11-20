@@ -1,7 +1,12 @@
 import type { Database } from '@adonisjs/lucid/database';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { BreakerConfig } from '../src/index.js';
-import { ensureResilienceSchema, lucidResilienceStore } from '../src/index.js';
+import {
+  ensureResilienceSchema,
+  InMemoryResilienceStore,
+  lucidResilienceStore,
+} from '../src/index.js';
+import { ResilienceService } from '../src/resilience_service.js';
 import type { LucidDatabase, LucidQueryClient } from '../src/stores/lucid.js';
 import { asLucidDatabase, makeMemoryDatabase } from './lucid-helpers.js';
 
@@ -86,6 +91,62 @@ describe('LucidResilienceStore', () => {
     }
     expect(counts).toEqual({ transactions: 0, queries: 10 });
     expect(await changes()).toBe(changesBefore);
-    expect(await store.snapshot('k')).toEqual({ status: 'closed', failures: 0 });
+    const snapshot = await store.snapshot('k');
+    expect(snapshot).toMatchObject({ status: 'closed', failures: 0 });
+    // The failure stamped the row; the clean successes after it wrote nothing.
+    expect(snapshot.createdAt).toBeInstanceOf(Date);
+    expect(snapshot.updatedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe('circuit timestamps (Lucid, SQLite)', () => {
+  let db: Database;
+
+  beforeEach(() => {
+    db = makeMemoryDatabase();
+  });
+
+  afterEach(async () => {
+    await db.manager.closeAll();
+  });
+
+  it('adds created_at / updated_at to a table from before them; old rows keep NULL', async () => {
+    // The circuits table as earlier versions created it.
+    await db.rawQuery(`CREATE TABLE resilience_circuits (
+      key TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'closed', failures INTEGER NOT NULL DEFAULT 0,
+      open_until BIGINT NOT NULL DEFAULT 0, probes INTEGER NOT NULL DEFAULT 0)`);
+    await db.rawQuery(
+      `INSERT INTO resilience_circuits (key, status, failures, open_until, probes) VALUES ('old', 'closed', 2, 0, 0)`,
+    );
+
+    const store = lucidResilienceStore(asLucidDatabase(db));
+    expect(await store.snapshot('old')).toEqual({ status: 'closed', failures: 2 });
+
+    const columns = (await db.rawQuery(`PRAGMA table_info(resilience_circuits)`)) as {
+      name: string;
+      notnull: number;
+      dflt_value: unknown;
+    }[];
+    for (const name of ['created_at', 'updated_at']) {
+      expect(columns.find((c) => c.name === name)).toMatchObject({ notnull: 0, dflt_value: null });
+    }
+
+    const before = Date.now();
+    await store.record('new', cfg, false, false);
+    const fresh = await store.snapshot('new');
+    expect(fresh.createdAt?.getTime()).toBeGreaterThanOrEqual(before);
+    expect(fresh.updatedAt?.getTime()).toBe(fresh.createdAt?.getTime());
+  });
+
+  it('the service lists circuits with ISO dates, and null where the store has none', async () => {
+    const store = lucidResilienceStore(asLucidDatabase(db));
+    await store.record('db', cfg, false, false);
+    const service = new ResilienceService({ emit: false, store });
+    const circuit = await service.getCircuit('db');
+    expect(circuit.createdAt).toMatch(/^\d{4}-\d\d-\d\dT.*Z$/);
+    expect(circuit.updatedAt).toBe(circuit.createdAt);
+
+    const memory = new ResilienceService({ emit: false, store: new InMemoryResilienceStore() });
+    expect(await memory.getCircuit('db')).toMatchObject({ createdAt: null, updatedAt: null });
   });
 });

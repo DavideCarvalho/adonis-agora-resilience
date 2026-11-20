@@ -128,6 +128,7 @@ function circuitRow(c: CircuitInfo, now: number) {
         : c.openUntil > now
           ? `in ${formatMs(Math.ceil((c.openUntil - now) / 1000) * 1000)}`
           : new Date(c.openUntil).toISOString(),
+    updated: c.updatedAt ?? '—',
     store: c.store,
     scope: c.scope,
     // Only circuits on a store the page can address get a Reset button.
@@ -157,6 +158,7 @@ export function resilienceCircuitsProvider(): DataProvider {
           status: '',
           failures: '',
           until: '',
+          updated: '',
           store: '',
           scope: '',
           resettable: 'no',
@@ -202,6 +204,7 @@ export function resilienceRateLimitersProvider(): DataProvider {
             r.limit !== undefined && r.intervalMs !== undefined
               ? `${r.limit}/${formatMs(r.intervalMs)}`
               : '',
+          updated: r.updatedAt ?? '—',
           store: r.store,
           scope: r.scope,
         })),

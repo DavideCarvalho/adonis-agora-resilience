@@ -107,6 +107,8 @@ export class ResilienceCircuitsShow extends ResilienceCommand {
     if (circuit.threshold !== undefined) table.row(['Threshold', String(circuit.threshold)]);
     if (circuit.cooldownMs !== undefined) table.row(['Cooldown', `${circuit.cooldownMs}ms`]);
     if (circuit.openUntil !== undefined) table.row(['Half-open at', isoOf(circuit.openUntil)]);
+    table.row(['Created', circuit.createdAt ?? '—']);
+    table.row(['Updated', circuit.updatedAt ?? '—']);
     table.row(['Policy', circuit.policy ?? '']);
     table.row(['Store', circuit.store]);
     table.row(['Scope', circuit.scope]);

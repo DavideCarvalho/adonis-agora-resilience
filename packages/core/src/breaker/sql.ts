@@ -116,7 +116,9 @@ CREATE TABLE IF NOT EXISTS ${table} (
   status     VARCHAR(16) NOT NULL DEFAULT 'closed',
   failures   INTEGER NOT NULL DEFAULT 0,
   open_until BIGINT  NOT NULL DEFAULT 0,
-  probes     INTEGER NOT NULL DEFAULT 0
+  probes     INTEGER NOT NULL DEFAULT 0,
+  created_at BIGINT  NULL,
+  updated_at BIGINT  NULL
 );`;
   }
   return `
@@ -125,8 +127,24 @@ CREATE TABLE IF NOT EXISTS ${table} (
   status     TEXT    NOT NULL DEFAULT 'closed',
   failures   INTEGER NOT NULL DEFAULT 0,
   open_until BIGINT  NOT NULL DEFAULT 0,
-  probes     INTEGER NOT NULL DEFAULT 0
+  probes     INTEGER NOT NULL DEFAULT 0,
+  created_at BIGINT  NULL,
+  updated_at BIGINT  NULL
 );`;
+}
+
+/**
+ * `ALTER TABLE` statements adding `created_at` / `updated_at` (epoch ms, nullable, no default) to a
+ * circuits table created before they existed. For apps that manage the tables with their own
+ * migration (`autoCreateSchema: false`); run each once. With `autoCreateSchema` on, the store adds
+ * them itself. Rows from before keep `NULL`.
+ */
+export function circuitTimestampsDdl(opts: ResilienceSchemaOptions = {}): string[] {
+  const table = resilienceTableNames(opts).circuits;
+  return [
+    `ALTER TABLE ${table} ADD COLUMN created_at BIGINT NULL;`,
+    `ALTER TABLE ${table} ADD COLUMN updated_at BIGINT NULL;`,
+  ];
 }
 
 /**
@@ -312,6 +330,13 @@ interface SqlStatements {
   selectPlain: string;
   updateState: string;
   closeIfDirty: string;
+  /** Same statements writing `created_at` / `updated_at` (extra trailing-free params, see below). */
+  insertInitialStamped: string;
+  selectPlainStamped: string;
+  updateStateStamped: string;
+  closeIfDirtyStamped: string;
+  /** Selects nothing; fails when the table predates the timestamp columns. */
+  probeTimestamps: string;
   deleteRow: string;
   listKeys: (limit: number) => string;
 }
@@ -359,6 +384,29 @@ WHERE ${key} = ${p(5)};`,
 UPDATE ${t.circuits}
 SET status = 'closed', failures = 0, open_until = 0
 WHERE ${key} = ${p(1)} AND (status <> 'closed' OR failures <> 0 OR open_until <> 0);`,
+    // The same writes stamping the row: `created_at` once on insert, `updated_at` on every state
+    // change. They ride on statements the cycle runs anyway, so no call writes more than before.
+    // Parameters: key, created_at, updated_at.
+    insertInitialStamped: `
+INSERT INTO ${t.circuits} (${key}, status, failures, open_until, probes, created_at, updated_at)
+VALUES (${p(1)}, 'closed', 0, 0, 0, ${p(2)}, ${p(3)})
+${ignoreDuplicate};`,
+    selectPlainStamped: `
+SELECT status, failures, open_until, probes, created_at, updated_at
+FROM ${t.circuits}
+WHERE ${key} = ${p(1)};`,
+    // Parameters: status, failures, open_until, probes, updated_at, key.
+    updateStateStamped: `
+UPDATE ${t.circuits}
+SET status = ${p(1)}, failures = ${p(2)}, open_until = ${p(3)}, probes = ${p(4)}, updated_at = ${p(5)}
+WHERE ${key} = ${p(6)};`,
+    // Parameters: updated_at, key.
+    closeIfDirtyStamped: `
+UPDATE ${t.circuits}
+SET status = 'closed', failures = 0, open_until = 0, updated_at = ${p(1)}
+WHERE ${key} = ${p(2)} AND (status <> 'closed' OR failures <> 0 OR open_until <> 0);`,
+    probeTimestamps: `
+SELECT created_at, updated_at FROM ${t.circuits} WHERE 1 = 0;`,
     // Clear a circuit back to its initial state (reset()). A missing row is a no-op.
     deleteRow: `
 DELETE FROM ${t.circuits}
@@ -381,6 +429,13 @@ function rowToState(row: Record<string, unknown> | undefined): CircuitState {
     openUntil: Number(row.open_until),
     probes: Number(row.probes),
   };
+}
+
+/** An epoch-ms column (a number, or the string Postgres returns for BIGINT) as a `Date`. */
+function epochDate(value: unknown): Date | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  const ms = Number(value);
+  return Number.isFinite(ms) && ms > 0 ? new Date(ms) : undefined;
 }
 
 /** A `LIKE` pattern matching every key that starts with `prefix` (`!` escapes the wildcards). */
@@ -480,6 +535,8 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
   private readonly clock: Clock;
   /** The schema (MySQL: database) holding the tables, or undefined for the current one. */
   readonly schema: string | undefined;
+  /** Whether the circuits table has `created_at` / `updated_at`; probed once, then cached. */
+  private timestamps: Promise<boolean> | undefined;
 
   constructor(
     private readonly driver: SqlDriver,
@@ -533,6 +590,51 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
         if (!isConcurrentCreate(error)) throw error;
         await this.driver.exec(ddl);
       }
+    }
+    // A circuits table from before `created_at` / `updated_at`: add them (nullable, no default, so
+    // the ALTER is instant and old rows keep NULL). A concurrent boot may add them first, so a
+    // failing ALTER is ignored and the columns are probed again.
+    this.timestamps = undefined;
+    if (!(await this.hasTimestampColumns())) {
+      for (const ddl of circuitTimestampsDdl(opts)) {
+        await this.driver.exec(ddl).catch(() => undefined);
+      }
+      // Without the ALTER grant the store keeps working without the dates; the doctor says so.
+      this.timestamps = undefined;
+    }
+  }
+
+  /**
+   * Whether the circuits table has the `created_at` / `updated_at` columns. A table created before
+   * them keeps working without them (the store just leaves the dates out); `ensureSchema()` adds
+   * them, and `agora:doctor` warns while they are missing. Probed once per store.
+   */
+  hasTimestampColumns(): Promise<boolean> {
+    if (!this.timestamps) this.timestamps = this.probeTimestamps();
+    return this.timestamps;
+  }
+
+  /**
+   * Asks the catalog first: a failing statement would abort the app's transaction on Postgres when
+   * the store runs inside one. Without `information_schema` (SQLite, where a failed statement leaves
+   * the transaction usable) it selects the columns from no row instead.
+   */
+  private async probeTimestamps(): Promise<boolean> {
+    const current = this.driver.dialect === 'mysql' ? 'DATABASE()' : 'current_schema()';
+    const params: unknown[] = ['resilience_circuits'];
+    if (this.schema !== undefined) params.push(this.schema);
+    const schema = this.schema === undefined ? current : this.param(2);
+    try {
+      const rows = await this.driver.read(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = ${this.param(1)} AND table_schema = ${schema} AND column_name IN ('created_at', 'updated_at')`,
+        params,
+      );
+      return rows.length === 2;
+    } catch {
+      return this.driver.read(this.stmts.probeTimestamps, []).then(
+        () => true,
+        () => false,
+      );
     }
   }
 
@@ -600,21 +702,16 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
     const prev = rowToState(rows[0] as Record<string, unknown> | undefined);
     const { state, admission } = computeAdmit(prev, cfg, now);
     if (sameState(prev, state)) return admission;
+    const stamped = await this.hasTimestampColumns();
     return this.driver.transaction(async (tx): Promise<Admission> => {
-      await tx.run(this.stmts.insertInitial, [key]);
+      await this.insertInitial(tx, key, stamped, now);
       const locked = await tx.all(this.stmts.selectForUpdate, [key]);
       const next = computeAdmit(
         rowToState(locked[0] as Record<string, unknown> | undefined),
         cfg,
         now,
       );
-      await tx.run(this.stmts.updateState, [
-        next.state.status,
-        next.state.failures,
-        next.state.openUntil,
-        next.state.probes,
-        key,
-      ]);
+      await this.updateState(tx, key, next.state, stamped, now);
       return next.admission;
     });
   }
@@ -630,38 +727,64 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
     ok: boolean,
     probe: boolean,
   ): Promise<CircuitStatus> {
+    const stamped = await this.hasTimestampColumns();
     if (ok && !probe) {
-      await this.driver.run(this.stmts.closeIfDirty, [key]);
+      await (stamped
+        ? this.driver.run(this.stmts.closeIfDirtyStamped, [this.clock.now(), key])
+        : this.driver.run(this.stmts.closeIfDirty, [key]));
       return 'closed';
     }
     return this.driver.transaction(async (tx): Promise<CircuitStatus> => {
-      await tx.run(this.stmts.insertInitial, [key]);
+      const now = this.clock.now();
+      await this.insertInitial(tx, key, stamped, now);
       const rows = await tx.all(this.stmts.selectForUpdate, [key]);
       const { state, status } = computeRecord(
         rowToState(rows[0] as Record<string, unknown> | undefined),
         cfg,
         ok,
         probe,
-        this.clock.now(),
+        now,
       );
-      await tx.run(this.stmts.updateState, [
-        state.status,
-        state.failures,
-        state.openUntil,
-        state.probes,
-        key,
-      ]);
+      await this.updateState(tx, key, state, stamped, now);
       return status;
     });
   }
 
+  private insertInitial(tx: SqlTx, key: string, stamped: boolean, now: number): Promise<void> {
+    return stamped
+      ? tx.run(this.stmts.insertInitialStamped, [key, now, now])
+      : tx.run(this.stmts.insertInitial, [key]);
+  }
+
+  private updateState(
+    tx: SqlTx,
+    key: string,
+    state: CircuitState,
+    stamped: boolean,
+    now: number,
+  ): Promise<void> {
+    const values = [state.status, state.failures, state.openUntil, state.probes];
+    return stamped
+      ? tx.run(this.stmts.updateStateStamped, [...values, now, key])
+      : tx.run(this.stmts.updateState, [...values, key]);
+  }
+
   async snapshot(key: string): Promise<CircuitSnapshot> {
-    const rows = await this.driver.read(this.stmts.selectPlain, [key]);
-    const s = rowToState(rows[0] as Record<string, unknown> | undefined);
+    const stamped = await this.hasTimestampColumns();
+    const rows = await this.driver.read(
+      stamped ? this.stmts.selectPlainStamped : this.stmts.selectPlain,
+      [key],
+    );
+    const row = rows[0] as Record<string, unknown> | undefined;
+    const s = rowToState(row);
+    const createdAt = epochDate(row?.created_at);
+    const updatedAt = epochDate(row?.updated_at);
     return {
       status: s.status,
       failures: s.failures,
       ...(s.openUntil ? { openUntil: s.openUntil } : {}),
+      ...(createdAt ? { createdAt } : {}),
+      ...(updatedAt ? { updatedAt } : {}),
     };
   }
 

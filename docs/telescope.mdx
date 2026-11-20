@@ -9,8 +9,8 @@ import { Callout } from 'fumadocs-ui/components/callout';
 With [`@adonis-agora/telescope`](/docs/telescope) installed, Telescope gets a **Resilience** page (under *Libraries*) without any configuration. It shows:
 
 - **Now**: open and half-open circuits, and in the last hour: short-circuited calls, retries, timeouts, the error rate of your named policies, bulkhead rejections and rate-limited calls.
-- **Circuits**: every circuit with its policy, status, failures, when it goes half-open, and its store.
-- **Limits**: bulkheads (calls running against their limit) and rate limiters (budget left).
+- **Circuits**: every circuit with its policy, status, failures, when it goes half-open, when its state last changed (Lucid store; `—` on Redis and memory), and its store.
+- **Limits**: bulkheads (calls running against their limit) and rate limiters (budget left, and when the bucket was last drawn from).
 - **Last hour**: events per type over time, and the noisiest policies.
 - **Recent transitions**: circuits opening, going half-open, closing and being reset, each linking to its Telescope entry.
 

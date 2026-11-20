@@ -199,6 +199,42 @@ export function runIntegrationSuite(target: Target): void {
       expect((await store.snapshot('t')).failures).toBe(1);
     });
 
+    it('adds created_at / updated_at to a circuits table from before them, old rows keep NULL', async () => {
+      await ensureResilienceSchema(db as unknown as LucidDatabase, { schema });
+      const table = `${q(schema)}.resilience_circuits`;
+      await db.rawQuery(`ALTER TABLE ${table} DROP COLUMN created_at`);
+      await db.rawQuery(`ALTER TABLE ${table} DROP COLUMN updated_at`);
+      await db.rawQuery(
+        `INSERT INTO ${table} (${q('key')}, status, failures, open_until, probes) VALUES ('old', 'closed', 1, 0, 0)`,
+      );
+
+      // Without auto-create, inside the app's transaction: the store works without the dates and
+      // its column probe does not abort the transaction.
+      await db.transaction(async (trx) => {
+        const legacy = lucidResilienceStore(trx as unknown as LucidDatabase, {
+          schema,
+          autoCreateSchema: false,
+        });
+        expect(await legacy.hasTimestampColumns()).toBe(false);
+        await legacy.record('in-trx', cfg, false, false);
+        expect(await legacy.snapshot('in-trx')).toEqual({ status: 'closed', failures: 1 });
+      });
+
+      const store = lucidResilienceStore(db as unknown as LucidDatabase, { schema });
+      expect(await store.snapshot('old')).toEqual({ status: 'closed', failures: 1 });
+      expect(await store.hasTimestampColumns()).toBe(true);
+      const before = Date.now();
+      await store.record('new', cfg, false, false);
+      const first = await store.snapshot('new');
+      expect(first.createdAt?.getTime()).toBeGreaterThanOrEqual(before - 1000);
+      expect(first.updatedAt?.getTime()).toBe(first.createdAt?.getTime());
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await store.record('new', cfg, false, false);
+      const second = await store.snapshot('new');
+      expect(second.createdAt?.getTime()).toBe(first.createdAt?.getTime());
+      expect(second.updatedAt?.getTime()).toBeGreaterThan(first.updatedAt?.getTime() ?? 0);
+    });
+
     it('with autoCreateSchema off, does not create anything and fails on the missing table', async () => {
       const store = lucidResilienceStore(db as unknown as LucidDatabase, {
         schema,

@@ -259,6 +259,8 @@ Each circuit reads like this:
   status: 'open',
   failures: 5,
   openUntil: 1762900000000,
+  createdAt: '2026-11-20T14:02:11.000Z', // SQL stores; null on Redis / memory
+  updatedAt: '2026-11-20T14:05:40.000Z', // when the state last changed
   scope: 'cluster',        // 'process' for the memory store: this process only
   threshold: 5,
   cooldownMs: 30000,
