@@ -512,6 +512,9 @@ export interface ResilienceSchemaReport {
   writeError?: string;
 }
 
+/** How long an inconclusive timestamp-column probe is trusted before it is asked again. */
+const PROBE_RETRY_MS = 60_000;
+
 const TABLES = ['resilience_circuits', 'resilience_bulkhead_leases', 'resilience_rate_limits'];
 
 class RollbackProbe extends Error {}
@@ -537,6 +540,8 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
   readonly schema: string | undefined;
   /** Whether the circuits table has `created_at` / `updated_at`; probed once, then cached. */
   private timestamps: Promise<boolean> | undefined;
+  /** When an inconclusive probe (both queries failed) may be retried; 0 = the answer is final. */
+  private timestampsRetryAt = 0;
 
   constructor(
     private readonly driver: SqlDriver,
@@ -610,7 +615,13 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
    * them, and `agora:doctor` warns while they are missing. Probed once per store.
    */
   hasTimestampColumns(): Promise<boolean> {
-    if (!this.timestamps) this.timestamps = this.probeTimestamps();
+    if (this.timestampsRetryAt > 0 && this.clock.now() >= this.timestampsRetryAt) {
+      this.timestamps = undefined;
+    }
+    if (!this.timestamps) {
+      this.timestampsRetryAt = 0;
+      this.timestamps = this.probeTimestamps();
+    }
     return this.timestamps;
   }
 
@@ -631,10 +642,15 @@ export class SqlResilienceStore implements ResilienceStore, BulkheadStore, RateL
       );
       return rows.length === 2;
     } catch {
-      return this.driver.read(this.stmts.probeTimestamps, []).then(
-        () => true,
-        () => false,
-      );
+      try {
+        await this.driver.read(this.stmts.probeTimestamps, []);
+        return true;
+      } catch {
+        // A missing column, or a database that did not answer: without the dates for now, and
+        // asked again in a minute so a transient failure does not turn them off for good.
+        this.timestampsRetryAt = this.clock.now() + PROBE_RETRY_MS;
+        return false;
+      }
     }
   }
 

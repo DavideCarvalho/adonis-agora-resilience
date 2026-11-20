@@ -239,6 +239,18 @@ describe('SqlResilienceStore timestamps', () => {
     expect(snapshot).toEqual({ status: 'closed', failures: 1 });
   });
 
+  it('an inconclusive probe is asked again after a minute, not cached for good', async () => {
+    const driver = new FakeSqlDriver(true);
+    const clock = clockAt(1_000);
+    const store = new SqlResilienceStore(driver, { clock });
+    expect(await store.hasTimestampColumns()).toBe(false);
+    // The columns appear (a migration ran) — the cached answer holds until the retry window ends.
+    await driver.exec('ALTER TABLE resilience_circuits ADD COLUMN updated_at BIGINT NULL;');
+    expect(await store.hasTimestampColumns()).toBe(false);
+    clock.advance(60_000);
+    expect(await store.hasTimestampColumns()).toBe(true);
+  });
+
   it('ensureSchema adds the missing columns as nullable BIGINT without a default', async () => {
     const driver = new FakeSqlDriver(true);
     const store = new SqlResilienceStore(driver, { clock: clockAt(1_000) });
