@@ -160,7 +160,7 @@ store listed under `config.stores` to hand to an explicit `circuitBreaker`.
 import resilience from '@adonis-agora/resilience/services/main'
 
 const snap = await resilience.circuit('payments').snapshot()
-// { status: 'closed' | 'open' | 'half-open', failures: number, openUntil?: number }
+// { status: 'closed' | 'open' | 'half-open', failures: number, openUntil?: number, createdAt?: Date, updatedAt?: Date }
 
 await resilience.circuit('payments').reset() // force back to closed, failures = 0 (emits `circuit-reset` + audit log via `resetCircuit`)
 

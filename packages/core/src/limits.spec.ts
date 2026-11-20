@@ -235,6 +235,7 @@ describe('service listing', () => {
         remaining: 9,
         limit: 10,
         intervalMs: 60_000,
+        updatedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
         scope: 'process',
       },
     ]);

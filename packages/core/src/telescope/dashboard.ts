@@ -29,6 +29,7 @@ export function resilienceDashboard(opts: ResilienceDashboardOptions = {}): Dash
     { key: 'status', label: 'Status' },
     { key: 'failures', label: 'Failures' },
     { key: 'until', label: 'Half-open at' },
+    { key: 'updated', label: 'Updated' },
     { key: 'store', label: 'Store' },
     { key: 'scope', label: 'Scope' },
   ];
@@ -115,6 +116,7 @@ export function resilienceDashboard(opts: ResilienceDashboardOptions = {}): Dash
               { key: 'policy', label: 'Policy' },
               { key: 'remaining', label: 'Left' },
               { key: 'rate', label: 'Rate' },
+              { key: 'updated', label: 'Updated' },
               { key: 'store', label: 'Store' },
               { key: 'scope', label: 'Scope' },
             ],

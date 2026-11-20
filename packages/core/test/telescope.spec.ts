@@ -195,6 +195,7 @@ describe('data providers', () => {
           policy: 'sms',
           remaining: 0,
           rate: '1/1m',
+          updated: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
           store: 'memory',
           scope: 'process',
         },

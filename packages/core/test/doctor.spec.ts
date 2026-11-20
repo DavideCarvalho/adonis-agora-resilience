@@ -18,13 +18,17 @@ import {
 import { resilienceDoctorChecks } from '../src/doctor/checks.js';
 import { agoraDoctorChecks } from '../src/doctor/index.js';
 import {
+  BULKHEADS_DDL,
   bulkhead,
   circuitBreaker,
   InMemoryResilienceStore,
+  lucidResilienceStore,
+  RATE_LIMITS_DDL,
   ResilienceService,
   retry,
   stores,
 } from '../src/index.js';
+import { asLucidDatabase, makeMemoryDatabase } from './lucid-helpers.js';
 
 let root: string;
 
@@ -178,6 +182,31 @@ describe('resilience checks', () => {
       ['error', 'broken does not answer: ECONNREFUSED'],
     ]);
     expect(exitCode).toBe(1);
+  });
+
+  it('resilience.store-reachable warns when the circuits table has no timestamp columns', async () => {
+    const db = makeMemoryDatabase();
+    try {
+      await db.rawQuery(`CREATE TABLE resilience_circuits (
+        key TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'closed', failures INTEGER NOT NULL DEFAULT 0,
+        open_until BIGINT NOT NULL DEFAULT 0, probes INTEGER NOT NULL DEFAULT 0)`);
+      await db.rawQuery(RATE_LIMITS_DDL);
+      await db.rawQuery(BULKHEADS_DDL);
+      const app = fakeApp({ resilience: {} });
+      const store = lucidResilienceStore(asLucidDatabase(db), { autoCreateSchema: false });
+      app.container.bindValue(ResilienceService, new ResilienceService({ emit: false, store }));
+      const { report } = await runAgoraDoctor(
+        app as unknown as ApplicationService,
+        resilienceDoctorChecks(),
+        { deep: true, libs: ['resilience'] },
+      );
+      expect(report.results.find((r) => r.id === 'resilience.store-reachable')).toMatchObject({
+        status: 'warn',
+        message: expect.stringContaining('no created_at / updated_at'),
+      });
+    } finally {
+      await db.manager.closeAll();
+    }
   });
 });
 

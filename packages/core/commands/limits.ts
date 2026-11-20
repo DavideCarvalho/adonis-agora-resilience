@@ -194,6 +194,7 @@ export class ResilienceRateLimitersShow extends ResilienceCommand {
     if (limiter.tokens !== undefined) table.row(['Tokens', String(limiter.tokens)]);
     if (limiter.limit !== undefined) table.row(['Rate', rateOf(limiter.limit, limiter.intervalMs)]);
     if (limiter.burst !== undefined) table.row(['Burst', String(limiter.burst)]);
+    table.row(['Updated', limiter.updatedAt ?? '—']);
     table.row(['Policy', limiter.policy ?? '']);
     table.row(['Store', limiter.store]);
     table.row(['Scope', limiter.scope]);

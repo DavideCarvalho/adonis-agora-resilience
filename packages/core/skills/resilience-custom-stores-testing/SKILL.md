@@ -116,6 +116,8 @@ export default class extends BaseSchema {
       table.integer('failures').notNullable().defaultTo(0)
       table.bigInteger('open_until').notNullable().defaultTo(0)
       table.integer('probes').notNullable().defaultTo(0)
+      table.bigInteger('created_at').nullable()
+      table.bigInteger('updated_at').nullable()
     })
 
     // only needed when you use bulkhead() / rateLimiter() on this store

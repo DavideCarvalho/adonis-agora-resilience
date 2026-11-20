@@ -181,6 +181,15 @@ export function resilienceDoctorChecks(): AgoraDoctorCheck[] {
             await store.snapshot('__doctor__');
             if (isBulkheadStore(store)) await store.bulkheadSnapshot('__doctor__');
             if (isRateLimitStore(store)) await store.rateLimitSnapshot('__doctor__');
+            if (store instanceof SqlResilienceStore && !(await store.hasTimestampColumns())) {
+              out.push({
+                status: 'warn',
+                message: `${label}: the circuits table has no created_at / updated_at, so circuits show no dates`,
+                fix: 'Add them with circuitTimestampsDdl() in a migration, or leave autoCreateSchema on',
+                docs: `${DOCS}/stores`,
+              });
+              continue;
+            }
             out.push({
               status: 'ok',
               message:
