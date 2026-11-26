@@ -247,11 +247,11 @@ importers:
         specifier: 13.2.0
         version: 13.2.0
       ioredis:
-        specifier: 6.0.0
-        version: 6.0.0(supports-color@10.2.2)
+        specifier: 6.1.0
+        version: 6.1.0(supports-color@10.2.2)
       ioredis-mock:
         specifier: 8.13.1
-        version: 8.13.1(@types/ioredis-mock@8.2.8(ioredis@6.0.0(supports-color@10.2.2)))(ioredis@6.0.0(supports-color@10.2.2))
+        version: 8.13.1(@types/ioredis-mock@8.2.8(ioredis@6.1.0(supports-color@10.2.2)))(ioredis@6.1.0(supports-color@10.2.2))
       luxon:
         specifier: 3.7.2
         version: 3.7.2
@@ -701,8 +701,8 @@ packages:
   '@ioredis/commands@1.11.0':
     resolution: {integrity: sha512-tuMmOu6dtyGFv/fzCjtapCJj/zgoHaFsqs3wKsroJSRXtlLmyL/t+B7uaQiavGk1F3WWFQcUqZwk92bpp9jKcA==}
 
-  '@ioredis/commands@2.0.0':
-    resolution: {integrity: sha512-vrx0AE/T0h7cRZwfo1M39Cr+ZhZrkf0V8mQN75wucKCxCLD9l/VX6no3gFvrLqD1IlG/1LtzWovqEw3t0Vr9zg==}
+  '@ioredis/commands@2.4.0':
+    resolution: {integrity: sha512-fyu7ZM5RvtsYZ3pz4DFlPqSGB3aoVD9ir0vL6/TLtRo8EMuC7f0Z+qGBskDkUL/gJs5fzelxityZAfNNUCrVrQ==}
 
   '@isaacs/nonrecursive-glob-match@1.1.0':
     resolution: {integrity: sha512-GPm/Dbvk5RLmhRnxXIa7nTpK0xtl4E0wj0MslsuNiJ1FIROU+2+9lgUC/dgF7Ey4QCWhfEsgxilMRMCdHPfDfw==}
@@ -1401,10 +1401,6 @@ packages:
   cliui@7.0.4:
     resolution: {integrity: sha512-OcRE68cOsVMXp1Yvonl/fzkQOyjLSu/8bhPDfQt0e0/Eb283TKP20Fs2MqoPsr9SwA595rRCA+QMzYc9nBP+JQ==}
 
-  cluster-key-slot@1.1.1:
-    resolution: {integrity: sha512-rwHwUfXL40Chm1r08yrhU3qpUvdVlgkKNeyeGPOxnW8/SyVDvgRaed/Uz54AqWNaTCAThlj6QAs3TZcKI0xDEw==}
-    engines: {node: '>=0.10.0'}
-
   code-block-writer@13.0.3:
     resolution: {integrity: sha512-Oofo0pq3IKnsFtuHqSF7TqBfr71aeyZDVJ0HpmqB7FBM2qEigL0iPONSCZSO9pE9dZTAxANe5XHG9Uy0YMv8cg==}
 
@@ -1742,8 +1738,8 @@ packages:
       '@types/ioredis-mock': ^8
       ioredis: ^5
 
-  ioredis@6.0.0:
-    resolution: {integrity: sha512-f+Dtubxfpf6KYFq7WVXJoOLn0bk4TJrMrN9SzeE+jrWrCWj7XX3fA6vkryafhADX+GMymRxgDJDOI33COkJc0w==}
+  ioredis@6.1.0:
+    resolution: {integrity: sha512-0ooWUoxEiWEcCA0FFBsmCnYHnjiFgWPQwA144NxpQzLIVkW20JUjAoKtMg+7spFn+6OAI68XwpcLcGKW5xe4UA==}
     engines: {node: '>=20.0.0'}
 
   ipaddr.js@1.9.1:
@@ -2941,7 +2937,7 @@ snapshots:
       '@adonisjs/core': 7.7.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(supports-color@10.2.2)(youch@4.1.1)
       '@poppinss/utils': 7.1.2
       emittery: 1.2.1
-      ioredis: 6.0.0(supports-color@10.2.2)
+      ioredis: 6.1.0(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -3223,7 +3219,7 @@ snapshots:
 
   '@ioredis/commands@1.11.0': {}
 
-  '@ioredis/commands@2.0.0': {}
+  '@ioredis/commands@2.4.0': {}
 
   '@isaacs/nonrecursive-glob-match@1.1.0': {}
 
@@ -3550,9 +3546,9 @@ snapshots:
 
   '@types/he@1.2.3': {}
 
-  '@types/ioredis-mock@8.2.8(ioredis@6.0.0(supports-color@10.2.2))':
+  '@types/ioredis-mock@8.2.8(ioredis@6.1.0(supports-color@10.2.2))':
     dependencies:
-      ioredis: 6.0.0(supports-color@10.2.2)
+      ioredis: 6.1.0(supports-color@10.2.2)
 
   '@types/node@26.6.6':
     dependencies:
@@ -3750,8 +3746,6 @@ snapshots:
       string-width: 4.2.3
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
-
-  cluster-key-slot@1.1.1: {}
 
   code-block-writer@13.0.3: {}
 
@@ -4011,20 +4005,19 @@ snapshots:
 
   interpret@2.2.0: {}
 
-  ioredis-mock@8.13.1(@types/ioredis-mock@8.2.8(ioredis@6.0.0(supports-color@10.2.2)))(ioredis@6.0.0(supports-color@10.2.2)):
+  ioredis-mock@8.13.1(@types/ioredis-mock@8.2.8(ioredis@6.1.0(supports-color@10.2.2)))(ioredis@6.1.0(supports-color@10.2.2)):
     dependencies:
       '@ioredis/as-callback': 3.0.0
       '@ioredis/commands': 1.11.0
-      '@types/ioredis-mock': 8.2.8(ioredis@6.0.0(supports-color@10.2.2))
+      '@types/ioredis-mock': 8.2.8(ioredis@6.1.0(supports-color@10.2.2))
       fengari: 0.1.5
       fengari-interop: 0.1.4(fengari@0.1.5)
-      ioredis: 6.0.0(supports-color@10.2.2)
+      ioredis: 6.1.0(supports-color@10.2.2)
       semver: 7.8.6
 
-  ioredis@6.0.0(supports-color@10.2.2):
+  ioredis@6.1.0(supports-color@10.2.2):
     dependencies:
-      '@ioredis/commands': 2.0.0
-      cluster-key-slot: 1.1.1
+      '@ioredis/commands': 2.4.0
       debug: 4.4.3(supports-color@10.2.2)
       denque: 2.1.0
       redis-errors: 1.2.0
