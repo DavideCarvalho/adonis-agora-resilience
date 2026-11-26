@@ -1,5 +1,74 @@
 # @adonis-agora/resilience
 
+## 1.0.0
+
+### Major Changes
+
+- [#154](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/154) [`f0b9fff`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/f0b9fff19dc8f5397b20fbafca6bee2dd796e3fa) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The service's lists answer the `@adonis-agora/filter` list format, `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }`.
+  
+  - `recentEvents({ type?, key?, policy?, first?, after?, last?, before? })` is a cursor feed: page to older events with `after = meta.nextCursor`, to newer ones with `before = meta.prevCursor`. A cursor it did not produce throws `InvalidCursorError` (exported).
+  - `circuits()`, `bulkheads()` and `rateLimiters()` take `first` (default 100, at most 1000) and return one page; `meta.hasNext` says more match.
+  - `limit` is gone from all four.
+  - The Telescope `resilience.circuits` table answers the offset page `{ data, meta }`; the `resilience.transitions` provider reads `first`.
+
+- [#137](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/137) [`7758cf2`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/7758cf2b46a33b4fd8208ef3c25b2c37b2f8c047) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - 1.0.0: the API is now stable.
+  
+  Breaking changes:
+  
+  - Node.js 24 or newer is required (`"engines": { "node": ">=24" }`).
+  - `SqlDriver.run` is required. A custom driver for `SqlResilienceStore` must implement it (a plain write outside a transaction); the fallback that ran the statement in its own transaction is gone.
+  - `stores.redis()` and `stores.lucid()` resolve their connection from the `redis` / `lucid.db` container bindings only. The fallback to `@adonisjs/redis/services/main` / `@adonisjs/lucid/services/db` is removed: register `@adonisjs/redis/redis_provider` or `@adonisjs/lucid/database_provider` before the resilience provider.
+  
+  See [Migrating to 1.0](https://davidecarvalho.github.io/agora/docs/resilience/migrating-to-1.0).
+
+### Minor Changes
+
+- [#144](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/144) [`1c59170`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/1c5917091465e01982140e438322c631f936610b) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Bulkheads and rate limiters:
+  
+  - `bulkhead({ key, limit, queue, queueTimeoutMs, leaseMs, store })` caps concurrent calls; extra calls queue or fail with `BulkheadRejectedError` (`reason`: `full`, `queue-full`, `queue-timeout`) and a `bulkhead-rejected` event.
+  - `rateLimiter({ key, limit, intervalMs, burst, cost, maxWaitMs, store })` is a token bucket; over budget it waits up to `maxWaitMs` or fails with `RateLimitedError` (`retryAfterMs`) and a `rate-limited` event.
+  - The memory, Redis and Lucid/SQL stores hold bulkhead slots and rate-limiter budgets (`BulkheadStore`, `RateLimitStore`); Redis and Lucid share them across processes. The SQL stores add the `resilience_bulkhead_leases` and `resilience_rate_limits` tables (`BULKHEADS_DDL`, `RATE_LIMITS_DDL`, `RESILIENCE_DDL`; created automatically unless `autoCreateSchema: false`).
+  - `resilience.bulkheads()`, `getBulkhead()`, `rateLimiters()`, `getRateLimiter()` list them with their live state; `describePolicies()` describes them.
+  - `runBulkheadStoreContract` / `runRateLimitStoreContract` in `@adonis-agora/resilience/testing`.
+  - `lucidResilienceStore()` and `redisResilienceStore()` return their concrete store classes.
+
+- [#156](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/156) [`952658c`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/952658cc32f5a0dd1c524fee339150cbb69b61af) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - CLI parity with the Telescope page and the MCP tools. New commands: `resilience:policies:list`, `resilience:circuits:show`, `resilience:bulkheads:list`, `resilience:bulkheads:show`, `resilience:rate-limiters:list`, `resilience:rate-limiters:show`. Every list takes `--store`, `--prefix`, `--first` and `--json` (`{ data, meta }`); every show takes `--store` and `--json`.
+  
+  **Breaking (rc):** `resilience:circuits` is now `resilience:circuits:list` and `resilience:reset` is now `resilience:circuits:reset`, with no alias. The reset asks for confirmation unless `--force` (and refuses without a terminal), and records the actor as `cli:<os user>` instead of `cli`.
+
+- [#150](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/150) [`79adcb5`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/79adcb5e36cd671d94a6953a0d707bf4c6f0032f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `schema` on the Lucid/SQL store (`stores.lucid({ connection: 'pg', schema: 'resilience' })`): the circuit, bulkhead and rate-limiter tables live in their own Postgres schema, created on first use with `CREATE SCHEMA IF NOT EXISTS`. Every statement names the schema, so nothing depends on `search_path` and it is safe behind PgBouncer in transaction mode; it works on any connection, including the app's transaction. `resilienceDdl({ schema })`, `circuitsDdl`/`bulkheadsDdl`/`rateLimitsDdl` and `ensureResilienceSchema(db, { schema })` build the DDL for it. SQLite with `schema` fails at boot. `agora:doctor --deep` reports whether the schema exists, holds the tables and is writable.
+
+- [#146](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/146) [`c6c2470`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/c6c2470de2bcc3d1fc0d43ddb95ea2b41740dfc6) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Developer tools and commands:
+  
+  - With `@adonis-agora/agent`'s MCP provider installed, resilience registers its tools on the dev MCP endpoint (`/mcp/agora`), gated by the endpoint's `devTools.authorize`: `resilience_list_policies`, `resilience_list_circuits`, `resilience_get_circuit`, `resilience_list_bulkheads`, `resilience_list_rate_limiters`, `resilience_list_recent_events` and the action `resilience_reset_circuit` (audited with the caller). `devTools: false` in `config/resilience.ts` leaves them out.
+  - New ace commands `resilience:circuits` (`--status`, `--store`, `--json`) and `resilience:reset <key>` (`--store`), exported as `@adonis-agora/resilience/commands` and registered by `configure`. Existing apps add `() => import('@adonis-agora/resilience/commands')` to `commands` in `adonisrc.ts`.
+
+- [#147](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/147) [`80e6e42`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/80e6e424b21f8dc7159f18644c4523870ff0a437) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `node ace agora:doctor` and `node ace resilience:doctor`: health checks for the resilience configuration (`resilience.store`, `resilience.policies`, `resilience.limits-scope`, and with `--deep` `resilience.store-reachable`), plus the shared peer-range and release-line checks, registered in the shared `agora.doctor` registry so one `agora:doctor` run covers every installed `@adonis-agora` lib. Flags: `--lib`, `--only`, `--deep`, `--json`, `--strict`, `--verbose`, `--no-boot`; exit code 0 / 1 / 2. `@adonis-agora/resilience/doctor` exports the checks for `--no-boot`.
+
+- [#145](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/145) [`bda80f3`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/bda80f3f95226bdc8ade9be6c626a3d70933b053) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - A "Resilience" page in `@adonis-agora/telescope`, added automatically when telescope is installed (through the `agora.telescope.extensions` container value): open and half-open circuits, short-circuits, retries, timeouts, error rate, bulkhead rejections and rate-limited calls of the last hour, the circuits / bulkheads / rate-limiters tables, events over time, the noisiest policies and recent transitions. Open circuits have a Reset button (confirmation, telescope console `authorize`, audit line and `circuit-reset` event with the acting user). `@adonis-agora/resilience/telescope` exports `resilienceTelescopeExtension()` for manual wiring; `telescope: false` or `telescope: { reset: false }` in `config/resilience.ts` opt out.
+
+- [#170](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/170) [`900a76f`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/900a76f94aea9dc8e7eb57382868400bc788559d) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - createdAt / updatedAt for circuits. The SQL circuits table gains nullable `created_at` / `updated_at` (epoch ms, no default, no backfill): set when the circuit is first written and when its state changes, on the statements the breaker already runs (a success on a clean circuit still writes nothing). `CircuitSnapshot` gains optional `createdAt` / `updatedAt` (`Date`), and `CircuitInfo` (`circuits()`, `getCircuit()`) gains `createdAt` / `updatedAt` as ISO strings or `null`; `RateLimiterInfo` exposes the bucket's existing `updated_at` as `updatedAt`. With `autoCreateSchema` the store adds the columns to an existing table; otherwise run `circuitTimestampsDdl()` in a migration — until then the store keeps working without dates and `agora:doctor --deep` warns. The Telescope circuits and rate-limiters tables and `resilience:circuits:show` / `resilience:rate-limiters:show` show the dates.
+
+- [#143](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/143) [`fda0813`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/fda0813aa272320828c74d169202d8fbc9ee1514) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - See what your policies are doing:
+  
+  - Every event of a named policy carries `policy` (retry, timeout and failover events included).
+  - New `executedEvents: true` option: one `executed` event (`{ policy, ok, ms, attempts, error? }`) per call to a named policy.
+  - New `circuit-reset` event, emitted (with an audit log line) by the new `resilience.resetCircuit(key, { store, by, via })` and by `circuit(key).reset()`.
+  - `resilience.circuits({ store, status, prefix, limit })`, `getCircuit(key, store)`, `policyNames()`, `describePolicies()` and `recentEvents({ type, key, policy, limit })`.
+  - Stores gain an optional `keys({ prefix, limit })`, implemented by the memory, Redis and Lucid/SQL stores.
+  - `circuitBreaker({ store })` accepts a store name from config, or no store at all (the default store inside a named policy, a shared in-memory store otherwise).
+  - Typed `agora:resilience:*` channels for `@adonis-agora/diagnostics` (`ResilienceChannels`).
+
+- [#148](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/148) [`fbab7ba`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/fbab7ba5f8548c6239dc45538834ae24f4390956) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `tenantSuffix()` returns the active tenant of `@adonis-agora/context`'s tenancy (for example the active organization) when tenancy is on, and the context's `tenantId` otherwise.
+
+### Patch Changes
+
+- [`071b6da`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/071b6dae411c9ccc8a36f4bd17f0e10436f8cb99) Thanks [@github-actions[bot]](https://github.com/github-actions%5Bbot%5D)! - fix(deps): update dependency @adonis-agora/filter to v1.0.0-rc.6 ([#164](https://github.com/DavideCarvalho/adonis-agora-resilience/issues/164))
+
+- [#151](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/151) [`bca02a7`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/bca02a7acd598211b91429589e545d829e1bc8ba) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The Lucid/SQL store works on MySQL 8 and MariaDB, as the docs said. Before, its first statement failed there (`key TEXT PRIMARY KEY`, the reserved word `key` unquoted, `ON CONFLICT`) and rows from `mysql2` were misread. On MySQL the key columns are `VARCHAR(512)` with the `utf8mb4_bin` collation (`MYSQL_KEY_LENGTH`; keys compare exactly, as on Postgres), `key` is quoted, and existing rows are skipped with `ON DUPLICATE KEY UPDATE`. `SqlDriver` takes `dialect: 'mysql'` and the DDL helpers take `{ dialect: 'mysql' }`. Postgres and SQLite SQL is unchanged.
+
+- [#168](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/168) [`41148d3`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/41148d3d9d67fcada5a051f1e2ada0b98aad172e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The Lucid and Redis circuit stores describe what they run on (`breaker state` on their connection, the app's default one when unset) under `Symbol.for('@adonis-agora/stack')`, so telescope's Architecture page shows them with no extra code.
+
 ## 1.0.0-rc.13
 
 ### Minor Changes

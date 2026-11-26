@@ -11,4 +11,4 @@ allowBuilds:
   better-sqlite3: true
   esbuild: true
 minimumReleaseAgeExclude:
-  - '@adonis-agora/filter@1.0.0-rc.5'
+  - '@adonis-agora/filter@1.0.0-rc.5 || 1.0.0'
