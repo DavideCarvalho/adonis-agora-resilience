@@ -15,7 +15,7 @@ description: >-
 metadata:
   type: core
   library: '@adonis-agora/resilience'
-  library_version: '0.3.2'
+  library_version: '1.0.0'
   framework: adonisjs
 sources:
   - 'DavideCarvalho/adonis-resilience:README.md'
