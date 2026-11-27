@@ -1,5 +1,11 @@
 # @adonis-agora/resilience
 
+## 1.0.1
+
+### Patch Changes
+
+- [#192](https://github.com/DavideCarvalho/adonis-agora-resilience/pull/192) [`0bf57a6`](https://github.com/DavideCarvalho/adonis-agora-resilience/commit/0bf57a6de3d910331a33126db3c3e58f807c5667) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Fix the `withResilience` JSDoc: a decorated `circuitBreaker` does not need an explicit `store`. Without one it uses the shared process-wide in-memory store. A store name throws at decoration time. Pass a store instance when breaker state must be shared across processes.
+
 ## 1.0.0
 
 ### Major Changes
