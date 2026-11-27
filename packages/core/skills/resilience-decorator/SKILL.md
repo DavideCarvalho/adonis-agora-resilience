@@ -40,18 +40,22 @@ import {
   InMemoryResilienceStore,
 } from '@adonis-agora/resilience'
 
+type Receipt = { id: string; amount: number }
+
 const store = new InMemoryResilienceStore()
 
 class PaymentClient {
-  constructor(private http: HttpClient) {}
-
   @withResilience(
     timeout(1_000),                                // outermost
     retry({ attempts: 3 }),                        // retries the timed-out call
     circuitBreaker({ key: 'pay', store, threshold: 5, cooldownMs: 30_000 }), // innermost
   )
   async charge(amount: number): Promise<Receipt> {
-    return this.http.post('/charge', { amount })
+    const res = await fetch('https://payments.example.com/charge', {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    })
+    return res.json()
   }
 }
 ```
@@ -71,13 +75,14 @@ method body. Swap the first two to bound each try instead of the whole loop:
 ```ts
 import { withResilience, retry, timeout } from '@adonis-agora/resilience'
 
-class SearchClient {
-  constructor(private http: HttpClient) {}
+type Results = { hits: string[] }
 
+class SearchClient {
   // retry(timeout(search)) — each attempt gets its own 1s budget
   @withResilience(retry({ attempts: 3 }), timeout(1_000))
   async search(q: string): Promise<Results> {
-    return this.http.get('/search', { params: { q } })
+    const res = await fetch(`https://search.example.com/search?q=${encodeURIComponent(q)}`)
+    return res.json()
   }
 }
 ```
@@ -117,16 +122,17 @@ so config stays the single source of truth:
 ```ts
 import resilience from '@adonis-agora/resilience/services/main'
 import { withResilience, circuitBreaker } from '@adonis-agora/resilience'
+import db from '@adonisjs/lucid/services/db'
+
+type Stock = { sku: string; quantity: number }
 
 // default store from config/resilience.ts; resilience.circuitStore('redis') for a named one
 const store = resilience.circuitStore()
 
 class InventoryClient {
-  constructor(private db: Database) {}
-
   @withResilience(circuitBreaker({ key: 'inventory', store, threshold: 5, cooldownMs: 30_000 }))
   async check(sku: string): Promise<Stock> {
-    return this.db.find(sku)
+    return db.from('stocks').where('sku', sku).firstOrFail()
   }
 }
 ```
@@ -146,12 +152,13 @@ Source: `docs/decorator.mdx § "Providing a store"`,
 Wrong:
 
 ```ts
-class PaymentClient {
-  constructor(private http: HttpClient) {}
+import { withResilience, retry, timeout } from '@adonis-agora/resilience'
 
+class PaymentClient {
   @withResilience(timeout(1_000), retry({ attempts: 3 }))
   async charge(amount: number) {
-    return this.http.post('/charge', { amount }) // no signal → request never aborted
+    // no signal → request never aborted
+    return fetch('https://payments.example.com/charge', { method: 'POST', body: JSON.stringify({ amount }) })
   }
 }
 ```
@@ -159,13 +166,16 @@ class PaymentClient {
 Correct:
 
 ```ts
-class PaymentClient {
-  constructor(private http: HttpClient) {}
+import resilience from '@adonis-agora/resilience/services/main'
+import { retry, timeout, wrap } from '@adonis-agora/resilience'
 
+const policy = wrap(timeout(1_000), retry({ attempts: 3 }))
+
+class PaymentClient {
   // the operation receives ctx, so `signal` reaches fetch and the request is aborted
   charge(amount: number) {
     return resilience.execute(policy, ({ signal }) =>
-      this.http.post('/charge', { amount }, { signal }),
+      fetch('https://payments.example.com/charge', { method: 'POST', body: JSON.stringify({ amount }), signal }),
     )
   }
 }
@@ -184,13 +194,16 @@ Source: `docs/decorator.mdx Callout "A timeout here rejects, but does not cancel
 
 Wrong:
 
-```ts
-class InventoryClient {
-  constructor(private db: Database) {}
+```ts expect-error="TS1241"
+import { withResilience, retry } from '@adonis-agora/resilience'
 
+type Stock = { sku: string; quantity: number }
+const stock = new Map<string, Stock>()
+
+class InventoryClient {
   @withResilience(retry({ attempts: 3 }))
-  check(sku: string): Stock { // sync method — cannot be wrapped in a promise pipeline
-    return this.db.find(sku)
+  check(sku: string): Stock { // sync method — rejected at compile time, not a promise pipeline
+    return stock.get(sku) ?? { sku, quantity: 0 }
   }
 }
 ```
@@ -198,19 +211,23 @@ class InventoryClient {
 Correct:
 
 ```ts
-class InventoryClient {
-  constructor(private db: Database) {}
+import { withResilience, retry } from '@adonis-agora/resilience'
+import db from '@adonisjs/lucid/services/db'
 
+type Stock = { sku: string; quantity: number }
+
+class InventoryClient {
   @withResilience(retry({ attempts: 3 }))
   async check(sku: string): Promise<Stock> {
-    return this.db.find(sku)
+    return db.from('stocks').where('sku', sku).firstOrFail()
   }
 }
 ```
 
 Mechanism: policies are promise-based, so only methods returning a `Promise` can
-be decorated; a sync method silently sits outside the contract the decorator is
-built on.
+be decorated; `withResilience` types its target as an async method, so TypeScript
+rejects a sync one at the decorator (TS1241) instead of letting it sit outside
+the contract the decorator is built on.
 
 Source: `docs/decorator.mdx § "The method shape"`
 

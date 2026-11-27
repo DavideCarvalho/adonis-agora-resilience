@@ -120,7 +120,9 @@ const charge = wrap(
   circuitBreaker({ key: 'payments', store, threshold: 5, cooldownMs: 30_000 }), // innermost
 )
 
-const result = await charge.execute(() => chargeCard(order))
+const result = await charge.execute(({ signal }) =>
+  fetch('https://api.stripe.com/v1/charges', { method: 'POST', signal }).then((res) => res.json()),
+)
 ```
 
 Read it top-down: execution order is `timeout(retry(breaker(op)))`. Put
@@ -137,8 +139,17 @@ wired for you, and per-target breakers skip known-dead targets instantly:
 ```ts
 import resilience from '@adonis-agora/resilience/services/main'
 import { wrap, timeout, circuitBreaker } from '@adonis-agora/resilience'
+import logger from '@adonisjs/core/services/logger'
+
+// your app's SMS clients, each wrapping one vendor SDK
+interface SmsProvider {
+  id: string
+  send(message: string, opts: { signal: AbortSignal }): Promise<{ messageId: string }>
+}
+declare const twilio: SmsProvider, vonage: SmsProvider, sns: SmsProvider
 
 const store = resilience.circuitStore()
+const message = 'Your verification code is 123456'
 
 const sms = await resilience.failover({
   targets: [twilio, vonage, sns],
@@ -186,8 +197,21 @@ import emitter from '@adonisjs/core/services/emitter'
 export default defineConfig({ eventEmitter: emitter as unknown as EventEmitterLike })
 ```
 
+AdonisJS types emitter events through `EventsList`, so declare the names you listen to:
+
 ```ts
-emitter.on('resilience.circuit.opened', (event) => notifyOncall(event.key))
+// start/events.ts
+import type { ResilienceEvent } from '@adonis-agora/resilience'
+import emitter from '@adonisjs/core/services/emitter'
+import logger from '@adonisjs/core/services/logger'
+
+declare module '@adonisjs/core/types' {
+  interface EventsList {
+    'resilience.circuit.opened': ResilienceEvent
+  }
+}
+
+emitter.on('resilience.circuit.opened', (event) => logger.error({ circuit: event.key }, 'circuit opened'))
 ```
 
 Source: `docs/integrations.mdx § EventEmitter mirror`,
@@ -218,6 +242,10 @@ commands only see their own process, so point them at a shared store (`--store=r
 Wrong:
 
 ```ts
+import { circuitBreaker, InMemoryResilienceStore, retry, timeout, wrap } from '@adonis-agora/resilience'
+
+const store = new InMemoryResilienceStore()
+
 // intended: 2s budget for the whole loop, breaker per attempt
 const policy = wrap(
   circuitBreaker({ key: 'payments', store, threshold: 5, cooldownMs: 30_000 }),
@@ -229,6 +257,10 @@ const policy = wrap(
 Correct:
 
 ```ts
+import { circuitBreaker, InMemoryResilienceStore, retry, timeout, wrap } from '@adonis-agora/resilience'
+
+const store = new InMemoryResilienceStore()
+
 // first argument = outermost layer: timeout(retry(breaker(op)))
 const policy = wrap(
   timeout(2_000),
@@ -248,6 +280,10 @@ Source: `docs/policies.mdx § "wrap — compose policies"`
 Wrong:
 
 ```ts
+import resilience from '@adonis-agora/resilience/services/main'
+
+const url = 'https://api.stripe.com/v1/charges'
+
 await resilience.execute('payments', () =>
   fetch(url, { method: 'POST' }).then((r) => r.json()),
 ) // rejects with TimeoutError at 2s, but the request keeps running
@@ -256,6 +292,10 @@ await resilience.execute('payments', () =>
 Correct:
 
 ```ts
+import resilience from '@adonis-agora/resilience/services/main'
+
+const url = 'https://api.stripe.com/v1/charges'
+
 await resilience.execute('payments', ({ signal }) =>
   fetch(url, { method: 'POST', signal }).then((r) => r.json()),
 )
@@ -272,6 +312,8 @@ Source: `docs/policies.mdx § timeout (Callout)`, `docs/getting-started.mdx`
 Wrong:
 
 ```ts
+import { exponential, retry } from '@adonis-agora/resilience'
+
 // meant "1 try + 4 retries" → actually up to 5 executions against a rate-limited API
 retry({ attempts: 5, backoff: exponential(100) })
 ```
@@ -279,6 +321,8 @@ retry({ attempts: 5, backoff: exponential(100) })
 Correct:
 
 ```ts
+import { exponential, retry } from '@adonis-agora/resilience'
+
 // three TOTAL tries, waiting 100ms then 200ms between them
 retry({ attempts: 3, backoff: exponential(100) })
 ```
@@ -294,6 +338,11 @@ Source: `docs/policies.mdx § "retry and backoff"` ("attempts: 3 means three tot
 Wrong:
 
 ```ts
+import resilience from '@adonis-agora/resilience/services/main'
+import { retry, timeout, wrap, type PolicyContext } from '@adonis-agora/resilience'
+
+const op = ({ signal }: PolicyContext) => fetch('https://api.stripe.com/v1/charges', { signal })
+
 const policy = wrap(timeout(2_000), retry({ attempts: 3 })) // built at module scope
 await resilience.execute(policy, op) // silent: no agora:resilience:* events, ever
 ```
@@ -302,7 +351,19 @@ Correct:
 
 ```ts
 // config/resilience.ts — built inside the named factory window, gets the service's sink
-policies: { payments: () => wrap(timeout(2_000), retry({ attempts: 3 })) }
+import { defineConfig, retry, timeout, wrap } from '@adonis-agora/resilience'
+
+export default defineConfig({
+  policies: { payments: () => wrap(timeout(2_000), retry({ attempts: 3 })) },
+})
+```
+
+```ts
+import resilience from '@adonis-agora/resilience/services/main'
+import { diagnosticsSink, timeout, type PolicyContext } from '@adonis-agora/resilience'
+
+const op = ({ signal }: PolicyContext) => fetch('https://api.stripe.com/v1/charges', { signal })
+
 await resilience.execute('payments', op)
 
 // ...or pass the sink explicitly at build time:
@@ -321,6 +382,9 @@ Source: `docs/integrations.mdx § "Which policies get the service's sink"`
 Wrong:
 
 ```ts
+import resilience from '@adonis-agora/resilience/services/main'
+import { circuitBreaker } from '@adonis-agora/resilience'
+
 // config lists only memory, but this code assumes redis exists:
 const store = resilience.circuitStore('redis') // throws at runtime
 circuitBreaker({ key: 'cart', store, threshold: 5, cooldownMs: 30_000 })
@@ -329,6 +393,9 @@ circuitBreaker({ key: 'cart', store, threshold: 5, cooldownMs: 30_000 })
 Correct:
 
 ```ts
+import resilience from '@adonis-agora/resilience/services/main'
+import { circuitBreaker } from '@adonis-agora/resilience'
+
 // 1. list it: stores: { memory: stores.memory(), redis: stores.redis({ connection: 'main' }) }
 // 2. then resolve it by name:
 const store = resilience.circuitStore('redis')

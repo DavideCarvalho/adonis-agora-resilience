@@ -34,6 +34,14 @@ ship in `@adonis-agora/resilience` itself and are selected in
 contract:
 
 ```ts
+import type {
+  Admission,
+  BreakerConfig,
+  CircuitSnapshot,
+  CircuitStatus,
+  KeysQuery,
+} from '@adonis-agora/resilience'
+
 interface ResilienceStore {
   admit(key: string, cfg: BreakerConfig): Promise<Admission>   // may I run? am I the probe?
   record(key: string, cfg: BreakerConfig, ok: boolean, probe: boolean): Promise<CircuitStatus>
@@ -145,6 +153,8 @@ export default class extends BaseSchema {
 
 ```ts
 // config/resilience.ts
+import { defineConfig, stores } from '@adonis-agora/resilience'
+
 export default defineConfig({
   default: 'lucid',
   stores: { lucid: stores.lucid({ connection: 'pg', autoCreateSchema: false }) },
@@ -183,6 +193,7 @@ cycle and the statements:
 
 ```ts
 import { SqlResilienceStore, type SqlDriver } from '@adonis-agora/resilience'
+import { pool } from '#services/pg_pool' // your driver's pool
 
 const driver: SqlDriver = {
   placeholders: 'numbered', // '$1, $2' (Postgres/Prisma/TypeORM) or 'positional' ('?')
@@ -244,6 +255,7 @@ container — import optional drivers *inside* the thunk so they stay optional:
 ```ts
 // app/lib/mongo_resilience_store.ts
 import type { StoreProvider } from '@adonis-agora/resilience'
+import { MongoResilienceStore } from './mongo_store.js' // your Tier 2 store
 
 export function mongoStore(config: { collection?: string } = {}): StoreProvider {
   return async ({ app }) => {
@@ -278,6 +290,7 @@ runResilienceStoreContract('MyResilienceStore', (clock) => new MyResilienceStore
 ```ts
 // bulkhead / rate-limiter backends:
 import { runBulkheadStoreContract, runRateLimitStoreContract } from '@adonis-agora/resilience/testing'
+import { MyBulkheadStore, MyRateLimitStore } from './my-store.js'
 
 runBulkheadStoreContract('MyBulkheadStore', (clock) => new MyBulkheadStore({ clock }))
 runRateLimitStoreContract('MyRateLimitStore', (clock) => new MyRateLimitStore({ clock }))
@@ -289,6 +302,7 @@ scheduled order instantly:
 
 ```ts
 import { FakeClock, InMemoryResilienceStore, circuitBreaker, BrokenCircuitError } from '@adonis-agora/resilience'
+import { expect } from 'vitest'
 
 const clock = new FakeClock()
 const store = new InMemoryResilienceStore(clock)
@@ -315,6 +329,8 @@ Wrong:
 
 ```ts
 // @adonisjs/lucid NOT installed:
+import { defineConfig, stores } from '@adonis-agora/resilience'
+
 export default defineConfig({
   default: 'memory',
   stores: {
@@ -327,6 +343,8 @@ export default defineConfig({
 Correct:
 
 ```ts
+import { defineConfig, stores } from '@adonis-agora/resilience'
+
 export default defineConfig({
   default: 'memory',
   stores: { memory: stores.memory() }, // list only stores whose peers you have installed
@@ -347,6 +365,9 @@ Source: `docs/stores.mdx Callout "Every listed store is built at boot"`,
 Wrong:
 
 ```ts
+import resilience from '@adonis-agora/resilience/services/main'
+
+const store = resilience.circuitStore()
 const snap = await store.snapshot('payments')
 if (snap.status === 'open') throw new Error('circuit open') // stale after the cooldown elapsed
 ```
@@ -354,6 +375,9 @@ if (snap.status === 'open') throw new Error('circuit open') // stale after the c
 Correct:
 
 ```ts
+import resilience from '@adonis-agora/resilience/services/main'
+
+const store = resilience.circuitStore()
 const snap = await store.snapshot('payments')
 const cooledDown = snap.openUntil !== undefined && Date.now() >= snap.openUntil
 if (snap.status === 'open' && !cooledDown) throw new Error('circuit open')
@@ -412,7 +436,9 @@ describe('MyLuaStore', () => {
 Correct:
 
 ```ts
+import type { Clock } from '@adonis-agora/resilience'
 import { runResilienceStoreContract } from '@adonis-agora/resilience/testing'
+import { MyLuaStore } from './my_lua_store.js'
 
 runResilienceStoreContract('MyLuaStore', (clock: Clock) => new MyLuaStore(clock))
 ```
@@ -431,6 +457,10 @@ Source: `docs/custom-store.mdx Callout "You are now the source-of-truth twin"` +
 Wrong:
 
 ```ts
+import { circuitBreaker } from '@adonis-agora/resilience'
+
+const breaker = circuitBreaker({ key: 'svc', threshold: 1, cooldownMs: 5_000 })
+
 await breaker.execute(() => Promise.reject(new Error('boom')))
 await new Promise((r) => setTimeout(r, 30_000)) // 30s test, still timing-sensitive
 ```
@@ -438,6 +468,9 @@ await new Promise((r) => setTimeout(r, 30_000)) // 30s test, still timing-sensit
 Correct:
 
 ```ts
+import { FakeClock, InMemoryResilienceStore, circuitBreaker } from '@adonis-agora/resilience'
+import { expect } from 'vitest'
+
 const clock = new FakeClock()
 const store = new InMemoryResilienceStore(clock)
 const breaker = circuitBreaker({ key: 'svc', store, threshold: 1, cooldownMs: 5_000 })
