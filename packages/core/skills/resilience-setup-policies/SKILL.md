@@ -200,7 +200,9 @@ node ace resilience:circuits:list --status=open --json   # { data, meta }
 node ace resilience:circuits:show payments
 node ace resilience:circuits:reset payments --force      # asks without --force; refuses with no TTY
 node ace resilience:bulkheads:list
+node ace resilience:bulkheads:show checkout              # occupancy and the calls running now
 node ace resilience:rate-limiters:list
+node ace resilience:rate-limiters:show openai            # budget left
 node ace resilience:policies:list
 ```
 
