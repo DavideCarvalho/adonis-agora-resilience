@@ -34,7 +34,7 @@ overview, every skill type `core`, all owned by the one package.
 | Skill | Type | Domain | What it covers | Failure modes |
 | ----- | ---- | ------ | -------------- | ------------- |
 | resilience-setup-policies | core | policies + app-wiring | install/configure, standalone wrap composition, config/resilience.ts named policies, ResilienceService singleton (execute/failover/circuit/circuitStore), TimeoutError/BrokenCircuitError | 5 |
-| resilience-decorator | core | app-wiring | @withResilience on async methods, composition order, explicit store at class-definition time, when to use execute instead | 3 |
+| resilience-decorator | core | app-wiring | @withResilience on async methods, composition order, optional store at class-definition time (process-wide memory default), when to use execute instead | 3 |
 | resilience-custom-stores-testing | core | stores | stores.memory/lucid/redis, boot-builds-every-listed-store, CIRCUITS_DDL migrations, custom store tiers (SqlDriver / computeAdmit+computeRecord / from scratch), StoreProvider, circuitStore(name?), runResilienceStoreContract, FakeClock | 5 |
 
 ## Failure Mode Inventory
@@ -55,7 +55,7 @@ overview, every skill type `core`, all owned by the one package.
 | - | ------- | -------- | ------ | ------------ |
 | 1 | Decorating a non-async method with withResilience | MEDIUM | docs/decorator.mdx § The method shape | — |
 | 2 | Assuming a decorator timeout cancels the underlying request | CRITICAL | docs/decorator.mdx Callout | resilience-custom-stores-testing |
-| 3 | Omitting the required store on a decorated circuitBreaker | HIGH | docs/decorator.mdx § Providing a store; packages/core/src/policies/circuit_breaker.ts | — |
+| 3 | Relying on the default store when breaker state must be shared fleet-wide | MEDIUM | docs/decorator.mdx § Providing a store; packages/core/src/stores/resolve.ts | — |
 
 ### resilience-custom-stores-testing (5 failure modes)
 
@@ -79,7 +79,7 @@ overview, every skill type `core`, all owned by the one package.
 | From | To | Reason |
 | ---- | -- | ------ |
 | resilience-setup-policies | resilience-custom-stores-testing | Named breakers and circuitStore(name?) only resolve stores config lists |
-| resilience-decorator | resilience-custom-stores-testing | Decorated breakers need an explicit module-scope store |
+| resilience-decorator | resilience-custom-stores-testing | Decorated breakers default to a process-wide memory store; share one via a module-scope store instance |
 | resilience-decorator | resilience-setup-policies | Argument order mirrors wrap; execute is the cancellation escape hatch |
 
 ## Subsystems & Reference Candidates
