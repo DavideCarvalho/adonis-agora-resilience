@@ -13,6 +13,7 @@
     "mcp-tools",
     "cli",
     "doctor",
+    "agent-skills",
     "testing",
     "migrating-to-1.0"
   ],
