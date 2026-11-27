@@ -127,4 +127,29 @@ describe('withResilience', () => {
     await expect(new Svc().run()).resolves.toBe(7);
     expect(op).toHaveBeenCalledOnce();
   });
+
+  it('without a store, a decorated breaker uses the shared process-wide memory store', async () => {
+    const key = 'decorator-spec-process-store';
+    class A {
+      @withResilience(circuitBreaker({ key, threshold: 1, cooldownMs: 60_000 }))
+      async fail(): Promise<void> {
+        throw new Error('boom');
+      }
+    }
+    class B {
+      @withResilience(circuitBreaker({ key, threshold: 1, cooldownMs: 60_000 }))
+      async ok(): Promise<string> {
+        return 'ok';
+      }
+    }
+    await expect(new A().fail()).rejects.toThrow('boom');
+    // B's breaker shares A's state through the process-wide store, so it is already open.
+    await expect(new B().ok()).rejects.toBeInstanceOf(BrokenCircuitError);
+  });
+
+  it('rejects a store name at decoration time (names only resolve inside the service)', () => {
+    expect(() =>
+      circuitBreaker({ key: 'named', store: 'redis', threshold: 1, cooldownMs: 1 }),
+    ).toThrow(/names the store "redis"/);
+  });
 });

@@ -240,24 +240,25 @@ skills:
         priority: 'CRITICAL'
         status: 'active'
         skills: ['resilience-decorator', 'resilience-custom-stores-testing']
-      - mistake: 'Omitting the required store on a decorated circuitBreaker'
+      - mistake: 'Relying on the default store when breaker state must be shared fleet-wide'
         mechanism: >-
-          A method decorator runs at class-definition time, so there is no
-          per-request container to resolve a store from and none is implicit;
-          circuitBreaker requires an explicit store option and the omission is a
-          type error at best, a broken pipeline at worst.
+          A method decorator runs at class-definition time, outside any
+          ResilienceService, so a circuitBreaker without a store falls back to
+          the shared process-wide in-memory store (and a store name throws).
+          That is fine for one process, but each instance trips on its own;
+          pass a store instance to share breaker state across processes.
         wrong_pattern: |
           @withResilience(circuitBreaker({ key: 'pay', threshold: 5, cooldownMs: 30_000 }))
-          async pay() {} // no store — nothing defines where breaker state lives
+          async pay() {} // per-process memory store; other instances never see the trip
         correct_pattern: |
           import resilience from '@adonis-agora/resilience/services/main'
-          const store = resilience.circuitStore() // or new InMemoryResilienceStore()
+          const store = resilience.circuitStore() // the store config/resilience.ts sets as default
           class PaymentClient {
             @withResilience(circuitBreaker({ key: 'pay', store, threshold: 5, cooldownMs: 30_000 }))
             async pay() {}
           }
-        source: 'docs/decorator.mdx § "Providing a store"; packages/core/src/policies/circuit_breaker.ts (store is required)'
-        priority: 'HIGH'
+        source: 'docs/decorator.mdx § "Providing a store"; packages/core/src/policies/circuit_breaker.ts (store?: ResilienceStore | string); packages/core/src/stores/resolve.ts (resolvePolicyStore)'
+        priority: 'MEDIUM'
         status: 'active'
         skills: ['resilience-decorator']
 

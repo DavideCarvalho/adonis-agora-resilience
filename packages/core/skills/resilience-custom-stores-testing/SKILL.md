@@ -454,5 +454,6 @@ Source: `docs/testing.mdx § "The clock seam"`
 
 See also: `resilience-setup-policies/SKILL.md` — how `circuitStore(name?)` and
 named policies resolve the stores registered here.
-See also: `resilience-decorator/SKILL.md` — decorated breakers need one of these
-stores passed explicitly at class-definition time.
+See also: `resilience-decorator/SKILL.md` — decorated breakers default to the
+shared process-wide in-memory store; pass one of these stores explicitly at
+class-definition time only when state must be shared across processes.

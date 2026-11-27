@@ -75,7 +75,7 @@ Only **async methods** can be decorated — the policies are promise-based, so t
 
 ## Providing a store
 
-Because a method decorator runs at class-definition time, there's no per-request container to resolve a circuit-breaker store from. Pass an explicit `store` to any [`circuitBreaker`](/docs/resilience/policies#circuitbreaker) policy:
+Because a method decorator runs at class-definition time, there's no per-request container to resolve a circuit-breaker store from. `store` is optional: a [`circuitBreaker`](/docs/resilience/policies#circuitbreaker) without one uses a shared process-wide in-memory store, which is enough for a single process. A store *name* (a string) only resolves for policies registered under `policies` in `config/resilience.ts`, so here it throws. When breaker state must be shared across processes, pass a store instance:
 
 ```ts
 import { circuitBreaker, lucidResilienceStore } from '@adonis-agora/resilience'

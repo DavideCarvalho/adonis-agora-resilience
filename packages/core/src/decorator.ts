@@ -30,9 +30,12 @@ type AsyncMethod = (...args: any[]) => Promise<any>;
  * }
  * ```
  *
- * The decorator preserves `this`, all arguments, and the return type. Because
- * there is no per-request container at decoration time, any
- * {@link circuitBreaker} policy must be given an explicit `store`.
+ * The decorator preserves `this`, all arguments, and the return type. The
+ * policies are built at class-definition time, outside any `ResilienceService`,
+ * so a {@link circuitBreaker} without a `store` uses the shared process-wide
+ * in-memory store, and a store *name* (a string) throws. Pass a store instance
+ * (e.g. `resilience.circuitStore()`) when breaker state must be shared across
+ * processes.
  *
  * Timeout caveat: the method body is invoked as `target.apply(this, args)`, which
  * does not forward `ctx.signal`. So a `timeout` policy here rejects the returned
