@@ -35,6 +35,7 @@ skills:
       - 'DavideCarvalho/adonis-resilience:docs/getting-started.mdx'
       - 'DavideCarvalho/adonis-resilience:docs/policies.mdx'
       - 'DavideCarvalho/adonis-resilience:docs/integrations.mdx'
+      - 'DavideCarvalho/adonis-resilience:docs/cli.mdx'
       - 'DavideCarvalho/adonis-resilience:packages/core/src/resilience_service.ts'
     subsystems: []
     references: []
