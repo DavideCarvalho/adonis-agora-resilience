@@ -104,7 +104,7 @@ Auto-create (`CREATE TABLE IF NOT EXISTS`, via `RESILIENCE_DDL`) is convenient f
 getting started; in production disable it and run the DDL from a migration so
 you get a `down()`:
 
-```ts
+```ts no-check
 // database/migrations/XXXX_create_resilience_circuits.ts
 import { BaseSchema } from '@adonisjs/lucid/schema'
 
@@ -208,11 +208,14 @@ yourself inside an atomic primitive. A new key loads as `INITIAL_CIRCUIT_STATE`;
 both functions take `now` as an argument, so thread a `Clock` through
 (default `systemClock`, inject `FakeClock` in tests):
 
-```ts
+```ts no-check
 import {
   computeAdmit,
   computeRecord,
   INITIAL_CIRCUIT_STATE,
+  systemClock,
+  type Admission,
+  type BreakerConfig,
   type Clock,
   type ResilienceStore,
 } from '@adonis-agora/resilience'
@@ -366,7 +369,7 @@ Source: `docs/stores.mdx Callout "snapshot() does not advance the cooldown"`
 
 Wrong:
 
-```ts
+```ts no-check
 async admit(key, cfg) {
   const prev = await db.load(key)                       // separate round-trips:
   const { state, admission } = computeAdmit(prev ?? INITIAL_CIRCUIT_STATE, cfg, Date.now())
@@ -377,7 +380,7 @@ async admit(key, cfg) {
 
 Correct:
 
-```ts
+```ts no-check
 async admit(key, cfg) {
   return this.engine.atomically(key, async (tx) => {
     const prev = (await tx.load(key)) ?? { ...INITIAL_CIRCUIT_STATE }
@@ -400,7 +403,7 @@ Source: `docs/custom-store.mdx "The interface you are implementing"`,
 
 Wrong:
 
-```ts
+```ts no-check
 describe('MyLuaStore', () => {
   it('opens after threshold failures', ...) // hand-picked happy-path cases only
 })

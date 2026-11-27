@@ -43,6 +43,8 @@ import {
 const store = new InMemoryResilienceStore()
 
 class PaymentClient {
+  constructor(private http: HttpClient) {}
+
   @withResilience(
     timeout(1_000),                                // outermost
     retry({ attempts: 3 }),                        // retries the timed-out call
@@ -70,6 +72,8 @@ method body. Swap the first two to bound each try instead of the whole loop:
 import { withResilience, retry, timeout } from '@adonis-agora/resilience'
 
 class SearchClient {
+  constructor(private http: HttpClient) {}
+
   // retry(timeout(search)) — each attempt gets its own 1s budget
   @withResilience(retry({ attempts: 3 }), timeout(1_000))
   async search(q: string): Promise<Results> {
@@ -118,6 +122,8 @@ import { withResilience, circuitBreaker } from '@adonis-agora/resilience'
 const store = resilience.circuitStore()
 
 class InventoryClient {
+  constructor(private db: Database) {}
+
   @withResilience(circuitBreaker({ key: 'inventory', store, threshold: 5, cooldownMs: 30_000 }))
   async check(sku: string): Promise<Stock> {
     return this.db.find(sku)
@@ -141,6 +147,8 @@ Wrong:
 
 ```ts
 class PaymentClient {
+  constructor(private http: HttpClient) {}
+
   @withResilience(timeout(1_000), retry({ attempts: 3 }))
   async charge(amount: number) {
     return this.http.post('/charge', { amount }) // no signal → request never aborted
@@ -152,6 +160,8 @@ Correct:
 
 ```ts
 class PaymentClient {
+  constructor(private http: HttpClient) {}
+
   // the operation receives ctx, so `signal` reaches fetch and the request is aborted
   charge(amount: number) {
     return resilience.execute(policy, ({ signal }) =>
@@ -176,6 +186,8 @@ Wrong:
 
 ```ts
 class InventoryClient {
+  constructor(private db: Database) {}
+
   @withResilience(retry({ attempts: 3 }))
   check(sku: string): Stock { // sync method — cannot be wrapped in a promise pipeline
     return this.db.find(sku)
@@ -187,6 +199,8 @@ Correct:
 
 ```ts
 class InventoryClient {
+  constructor(private db: Database) {}
+
   @withResilience(retry({ attempts: 3 }))
   async check(sku: string): Promise<Stock> {
     return this.db.find(sku)
